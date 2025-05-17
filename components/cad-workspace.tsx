@@ -159,6 +159,17 @@ function Scene({
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuObject, setContextMenuObject] = useState(null)
+  const [selectedMesh, setSelectedMesh] = useState(null)
+
+  // Effect to get the actual mesh object when selectedObject (ID) changes
+  useEffect(() => {
+    if (selectedObject && scene) {
+      const mesh = scene.getObjectByName(selectedObject)
+      setSelectedMesh(mesh || null)
+    } else {
+      setSelectedMesh(null)
+    }
+  }, [selectedObject, scene])
 
   // Handle right-click on objects
   const handleContextMenu = (e, object) => {
@@ -191,9 +202,22 @@ function Scene({
   }, [showContextMenu])
 
   // Handle transform changes
-  const handleTransformChange = (transformData) => {
-    if (selectedObject) {
-      onObjectTransform(selectedObject, transformData)
+  const handleTransformChange = (event) => {
+    if (event && event.target && event.target.object) {
+      const transformedObject = event.target.object
+      const { x: posX, y: posY, z: posZ } = transformedObject.position
+      const { x: rotX, y: rotY, z: rotZ } = transformedObject.rotation
+      const { x: scaleX, y: scaleY, z: scaleZ } = transformedObject.scale
+
+      const transformData = {
+        position: [posX, posY, posZ],
+        rotation: [rotX, rotY, rotZ],
+        scale: [scaleX, scaleY, scaleZ],
+      }
+
+      if (selectedObject) {
+        onObjectTransform(selectedObject, transformData)
+      }
     }
   }
 
@@ -315,8 +339,8 @@ function Scene({
       })}
 
       {/* Transform controls for selected object */}
-      {selectedObject && (
-        <TransformControls object={selectedObject} mode={transformMode} onObjectChange={handleTransformChange} />
+      {selectedMesh && (
+        <TransformControls object={selectedMesh} mode={transformMode} onObjectChange={handleTransformChange} />
       )}
 
       {/* Context menu for objects */}
