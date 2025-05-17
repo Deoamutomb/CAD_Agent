@@ -531,6 +531,12 @@ export function CadWorkspace() {
   const [history, setHistory] = useState<SceneObject[][]>([objects])
   const [historyIndex, setHistoryIndex] = useState(0)
 
+  // State for AI assistant
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
+  const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Update object properties when selection changes
   useEffect(() => {
     if (selectedObject) {
       const object = objects.find((obj) => obj.id === selectedObject)
@@ -824,6 +830,51 @@ export function CadWorkspace() {
     }
   }, [history, historyIndex])
 
+  // Handle AI assistant submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!input.trim() || isLoading) return
+
+    const userMessage = { role: 'user' as const, content: input }
+    setMessages(prev => [...prev, userMessage])
+    setInput("")
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage]
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to fetch')
+      if (!response.body) throw new Error('No response body')
+
+      const reader = response.body.getReader()
+      let assistantMessage = { role: 'assistant' as const, content: '' }
+      setMessages(prev => [...prev, assistantMessage])
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const text = new TextDecoder().decode(value)
+        assistantMessage.content += text
+        setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }])
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, there was an error processing your request.' }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Generate a random color
   const getRandomColor = () => {
     const colors = ["#9ae6b4", "#90cdf4", "#f6ad55", "#fc8181", "#b19cd9", "#fbd38d"]
     return colors[Math.floor(Math.random() * colors.length)]
@@ -1142,8 +1193,8 @@ export function CadWorkspace() {
           {/* Floating AI Input Panel */}
           {showAiPanel && (
             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 w-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 z-20 flex flex-col space-y-3 max-h-[40vh]">
-              <div className="flex items-center justify-between">
-                 <h3 className="font-medium flex items-center text-sm">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium flex items-center">
                   <Wand2 className="h-4 w-4 mr-2" />
                   AI Assistant
                 </h3>
@@ -1151,47 +1202,36 @@ export function CadWorkspace() {
                   <EyeOff className="h-4 w-4" />
                 </Button>
               </div>
-              <ScrollArea className="flex-1 pr-2">
-                <div className="space-y-3">
-                  {aiChatMessages.length === 0 ? (
-                    <div className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
-                      <p>Hey there! I'm your AI Assistant, ready to help you design.</p>
-                      <p>What can we create today?</p>
+
+              <ScrollArea className="flex-1 min-h-[200px] max-h-[300px] mb-2 overflow-y-auto">
+                <div className="space-y-2 pr-4">
+                  {messages.map((message, i) => (
+                    <div
+                      key={i}
+                      className={`p-2 rounded ${
+                        message.role === 'user'
+                          ? 'bg-blue-100 dark:bg-blue-900 ml-8'
+                          : 'bg-gray-100 dark:bg-gray-700'
+                      }`}
+                    >
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     </div>
-                  ) : (
-                    aiChatMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={cn(
-                          "p-2 rounded-lg text-sm",
-                          msg.sender === "user" ? "bg-blue-100 dark:bg-blue-900 ml-auto" : "bg-gray-100 dark:bg-gray-700 mr-auto",
-                          "max-w-[85%]"
-                        )}
-                      >
-                        {msg.text}
-                      </div>
-                    ))
-                  )}
+                  ))}
                 </div>
               </ScrollArea>
-              <div className="flex items-center space-x-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+
+              <form onSubmit={handleSubmit} className="flex mt-2">
                 <Input
                   placeholder="Ask the AI assistant..."
-                  className="flex-1 text-sm"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault(); // Prevent newline on enter unless shift is pressed
-                      handleAiSubmit();
-                    }
-                  }}
+                  className="flex-1"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={isLoading}
                 />
-                <Button size="sm" onClick={handleAiSubmit} disabled={!aiPrompt.trim()}>
-                  <MessageSquareText className="h-4 w-4 mr-1" />
-                  Send
+                <Button type="submit" disabled={isLoading} className="ml-2">
+                  <MessageSquareText className="h-4 w-4" />
                 </Button>
-              </div>
+              </form>
             </div>
           )}
         </div>
