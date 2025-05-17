@@ -9,7 +9,7 @@ interface PrimitiveBaseProps {
   position?: [number, number, number];
   color?: string;
   selected?: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, event: ReactMouseEvent) => void;
   onContextMenu: (event: ReactMouseEvent, id: string) => void;
   id: string;
 }
@@ -36,7 +36,7 @@ export function Cube({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -82,7 +82,7 @@ export function Sphere({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -128,7 +128,7 @@ export function Cylinder({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -174,7 +174,7 @@ export function Cone({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -221,7 +221,7 @@ export function Plane({
       rotation={[-Math.PI / 2, 0, 0]}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -270,7 +270,7 @@ export function Gear({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -347,7 +347,7 @@ export function Hex({
       position={position}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(id)
+        onSelect(id, e as unknown as ReactMouseEvent)
       }}
       onContextMenu={(e) => {
         e.stopPropagation();

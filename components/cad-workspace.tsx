@@ -73,7 +73,7 @@ import {
 } from "@/components/primitive-objects"
 
 // Import other icons
-import { Circle, Cylinder, Cone, Square } from "lucide-react"
+import { Circle as CircleIcon, Cylinder as CylinderIcon, Cone as ConeIcon, Square as SquareIcon } from "lucide-react"
 
 // Define types for scene objects
 export type PrimitiveType = "cube" | "sphere" | "cylinder" | "cone" | "plane" | "gear" | "hex";
@@ -214,41 +214,24 @@ function CameraModel({ color = "#b19cd9", position = [0, 0, 0], selected = false
 
 interface SceneProps {
   objects: SceneObject[];
-  selectedObject: string | null;
-  setSelectedObject: (id: string | null) => void;
+  selectedObjects: string[];
+  setSelectedObjects: (ids: string[], event?: ReactMouseEvent) => void;
   onDeleteObject: (id: string) => void;
   onDuplicateObject: (id: string) => void;
-  transformMode: "translate" | "rotate" | "scale";
-  onObjectTransform: (id: string, transformData: Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>) => void;
 }
 
 // Scene setup with grid and models
 function Scene({
   objects,
-  selectedObject,
-  setSelectedObject,
+  selectedObjects,
+  setSelectedObjects,
   onDeleteObject,
   onDuplicateObject,
-  transformMode,
-  onObjectTransform,
 }: SceneProps) {
   const { camera, scene } = useThree()
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuObject, setContextMenuObject] = useState<string | null>(null)
-  const [selectedMesh, setSelectedMesh] = useState<THREE.Object3D | null>(null)
-  
-  const transformDataRef = useRef<Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>> | null>(null);
-
-
-  useEffect(() => {
-    if (selectedObject && scene) {
-      const mesh = scene.getObjectByName(selectedObject)
-      setSelectedMesh(mesh || null)
-    } else {
-      setSelectedMesh(null)
-    }
-  }, [selectedObject, scene])
 
   const handleContextMenu = (e: ReactMouseEvent, object: SceneObject) => {
     e.stopPropagation()
@@ -277,30 +260,6 @@ function Scene({
     }
   }, [showContextMenu])
 
-  const handleTransformChange = (event?: THREE.Event) => {
-    if (event && event.target && event.target.object) {
-      const transformedObject = event.target.object;
-      const { x: posX, y: posY, z: posZ } = transformedObject.position;
-      const euler = transformedObject.rotation as unknown as THREE.Euler;
-      const { x: rotX, y: rotY, z: rotZ } = euler;
-      const { x: scaleX, y: scaleY, z: scaleZ } = transformedObject.scale;
-
-      transformDataRef.current = {
-        position: [posX, posY, posZ],
-        rotation: [rotX, rotY, rotZ],
-        scale: [scaleX, scaleY, scaleZ],
-      };
-    }
-  };
-
-  const handleTransformEnd = () => {
-    if (selectedObject && transformDataRef.current) {
-      onObjectTransform(selectedObject, transformDataRef.current);
-      transformDataRef.current = null; 
-    }
-  };
-  
-
   return (
     <>
       <ambientLight intensity={0.5} />
@@ -319,18 +278,28 @@ function Scene({
 
       {objects.map((object) => {
         const commonProps = {
-          key: object.id,
           id: object.id,
           position: object.position,
           color: object.color,
-          selected: selectedObject === object.id,
-          onSelect: setSelectedObject,
+          selected: selectedObjects.includes(object.id),
+          onSelect: (id: string, event?: ReactMouseEvent) => {
+            if (event?.shiftKey) {
+              setSelectedObjects(
+                selectedObjects.includes(id)
+                  ? selectedObjects.filter((objId) => objId !== id)
+                  : [...selectedObjects, id]
+              );
+            } else {
+              setSelectedObjects([id]);
+            }
+          },
           onContextMenu: (e: ReactMouseEvent) => handleContextMenu(e, object),
         };
         switch (object.type) {
           case "cube":
             return (
               <CubePrimitive
+                key={object.id}
                 {...commonProps}
                 size={object.size}
               />
@@ -338,6 +307,7 @@ function Scene({
           case "sphere":
             return (
               <SpherePrimitive
+                key={object.id}
                 {...commonProps}
                 radius={object.radius}
               />
@@ -345,6 +315,7 @@ function Scene({
           case "cylinder":
             return (
               <CylinderPrimitive
+                key={object.id}
                 {...commonProps}
                 args={object.args}
               />
@@ -352,6 +323,7 @@ function Scene({
           case "cone":
             return (
               <ConePrimitive
+                key={object.id}
                 {...commonProps}
                 args={object.args}
               />
@@ -359,6 +331,7 @@ function Scene({
           case "plane":
             return (
               <PlanePrimitive
+                key={object.id}
                 {...commonProps}
                 size={object.size}
               />
@@ -366,6 +339,7 @@ function Scene({
           case "gear":
             return (
               <GearPrimitive
+                key={object.id}
                 {...commonProps}
                 radius={object.radius}
                 teeth={object.teeth}
@@ -374,6 +348,7 @@ function Scene({
           case "hex":
             return (
               <HexPrimitive
+                key={object.id}
                 {...commonProps}
                 radius={object.radius}
                 height={object.height}
@@ -383,15 +358,6 @@ function Scene({
             return null
         }
       })}
-
-      {selectedMesh && (
-        <TransformControls 
-          object={selectedMesh} 
-          mode={transformMode} 
-          onChange={handleTransformChange} 
-          onMouseUp={handleTransformEnd} 
-        />
-      )}
 
       {showContextMenu && (
         <Html
@@ -403,8 +369,14 @@ function Scene({
               <>
                 <button
                   className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                  onClick={() => {
-                    setSelectedObject(contextMenuObject)
+                  onClick={(e) => {
+                    if (e.shiftKey && selectedObjects.includes(contextMenuObject)) {
+                        setSelectedObjects(selectedObjects.filter(id => id !== contextMenuObject));
+                    } else if (e.shiftKey) {
+                        setSelectedObjects([...selectedObjects, contextMenuObject]);
+                    } else {
+                        setSelectedObjects([contextMenuObject]);
+                    }
                     setShowContextMenu(false)
                   }}
                 >
@@ -504,7 +476,7 @@ export function CadWorkspace() {
   const [showLeftPanel, setShowLeftPanel] = useState(true)
   const [showRightPanel, setShowRightPanel] = useState(true)
   const [selectedModel, setSelectedModel] = useState("camera")
-  const [selectedObject, setSelectedObject] = useState<string | null>(null)
+  const [selectedObjects, setSelectedObjectsState] = useState<string[]>([])
   const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate")
   const [activeTab, setActiveTab] = useState("transform")
   const [aiPrompt, setAiPrompt] = useState("")
@@ -513,6 +485,14 @@ export function CadWorkspace() {
   const [objectToDelete, setObjectToDelete] = useState<string | null>(null)
   const { toast } = useToast()
   const [aiChatMessages, setAiChatMessages] = useState<AiChatMessage[]>([])
+
+  const [gizmoTarget, setGizmoTarget] = useState<THREE.Object3D | null>(null);
+  const multiSelectGizmoProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
+
+  // Refs for TransformControls interaction, defined in CadWorkspace
+  const transformDataRef = useRef<Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>> | null>(null);
+  const gizmoInitialTransformRef = useRef<THREE.Matrix4 | null>(null);
+  const initialObjectStatesOnDragStartRef = useRef<Record<string, BaseSceneObject> | null>(null);
 
   const initialObjects: SceneObject[] = [
     { id: "cube_1", type: "cube", position: [-3, 0.5, 0], size: [1, 1, 1], color: "#9ae6b4", rotation: [0,0,0], scale: [1,1,1] },
@@ -537,10 +517,16 @@ export function CadWorkspace() {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
+  // Wrapper for setSelectedObjects to include event for primitive selection
+  const setSelectedObjects = (ids: string[] | ((prev: string[]) => string[]), event?: ReactMouseEvent) => {
+    setSelectedObjectsState(ids);
+  };
+
   // Update object properties when selection changes
   useEffect(() => {
-    if (selectedObject) {
-      const object = objects.find((obj) => obj.id === selectedObject)
+    if (selectedObjects.length === 1) { 
+      const objectId = selectedObjects[0];
+      const object = objects.find((obj) => obj.id === objectId)
       if (object) {
         const rotation = object.rotation || [0, 0, 0];
         const scale = object.scale || [1, 1, 1];
@@ -561,7 +547,6 @@ export function CadWorkspace() {
         } else if (object.type === "hex") {
           dimensions = { width: object.radius * 2 * 10, height: object.height * 10, depth: object.radius * 2 * 10 };
         }
-
 
         setObjectProperties({
           position: {
@@ -590,7 +575,7 @@ export function CadWorkspace() {
         dimensions: { width: 10, height: 5, depth: 3 },
       });
     }
-  }, [selectedObject, objects])
+  }, [selectedObjects, objects])
 
   const handleAddPrimitive = useCallback(
     (primitiveType: PrimitiveType) => {
@@ -641,13 +626,13 @@ export function CadWorkspace() {
       newHistory.push(newObjects)
       setHistory(newHistory)
       setHistoryIndex(newHistory.length - 1)
-      setSelectedObject(id)
+      setSelectedObjects([id]) 
       toast({
         title: "Object Added",
         description: `Added ${primitiveType} to the scene`,
       })
     },
-    [objects, history, historyIndex, toast],
+    [objects, history, historyIndex, toast, setSelectedObjectsState],
   )
 
   const handleDeleteObject = useCallback((objectId: string) => {
@@ -663,8 +648,8 @@ export function CadWorkspace() {
       newHistory.push(newObjects)
       setHistory(newHistory)
       setHistoryIndex(newHistory.length - 1)
-      if (selectedObject === objectToDelete) {
-        setSelectedObject(null)
+      if (selectedObjects.some(id => id === objectToDelete)) { 
+        setSelectedObjects(selectedObjects.filter(id => id !== objectToDelete))
       }
       toast({
         title: "Object Deleted",
@@ -673,7 +658,7 @@ export function CadWorkspace() {
       setShowDeleteDialog(false)
       setObjectToDelete(null)
     }
-  }, [objectToDelete, objects, history, historyIndex, selectedObject, toast])
+  }, [objectToDelete, objects, history, historyIndex, selectedObjects, toast, setSelectedObjectsState])
 
   const handleDuplicateObject = useCallback(
     (objectId: string) => {
@@ -695,48 +680,55 @@ export function CadWorkspace() {
         newHistory.push(newObjects)
         setHistory(newHistory)
         setHistoryIndex(newHistory.length - 1)
-        setSelectedObject(newId)
+        setSelectedObjects([newId]) 
         toast({
           title: "Object Duplicated",
           description: `Duplicated ${objectToDuplicate.type}`,
         })
       }
     },
-    [objects, history, historyIndex, toast],
+    [objects, history, historyIndex, toast, setSelectedObjectsState],
   )
 
   const handleObjectTransform = useCallback(
-    (objectId: string, transformData: Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>) => {
-      const newObjects = objects.map((obj) => {
-        if (obj.id === objectId) {
-          return {
-            ...obj,
-            ...transformData,
-          }
+    (objectIds: string[], newTransforms: Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>>) => {
+      let newObjectsState = [...objects];
+      objectIds.forEach(id => {
+        if (newTransforms[id]) {
+          newObjectsState = newObjectsState.map((obj) => {
+            if (obj.id === id) {
+              return {
+                ...obj,
+                ...newTransforms[id],
+              };
+            }
+            return obj;
+          });
         }
-        return obj
-      })
-      setObjects(newObjects)
+      });
+      
+      setObjects(newObjectsState);
       const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(newObjects);
+      newHistory.push(newObjectsState);
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
     },
     [objects, history, historyIndex], 
-  )
+  );
 
   const handlePropertyChange = useCallback(
     (property: "position" | "rotation" | "scale" | "dimensions", axis: "x" | "y" | "z" | "width" | "height" | "depth", value: string) => {
-      if (!selectedObject) return
+      if (selectedObjects.length !== 1) return 
 
       const numericValue = Number.parseFloat(value)
       if (isNaN(numericValue)) return;
 
+      const selectedId = selectedObjects[0];
       let newObjectsState = objects;
 
       setObjects((prevObjects) => {
         newObjectsState = prevObjects.map((obj) => {
-          if (obj.id === selectedObject) {
+          if (obj.id === selectedId) { 
             const newObj = { ...obj } 
 
             if (property === "position") {
@@ -812,7 +804,7 @@ export function CadWorkspace() {
         return currentHistory;
       });
     },
-    [selectedObject, objects, history, historyIndex], 
+    [selectedObjects, objects, history, historyIndex], 
   )
 
   const handleUndo = useCallback(() => {
@@ -1021,6 +1013,168 @@ export function CadWorkspace() {
     setAiPrompt("");
   };
 
+  // Transform Handlers defined in CadWorkspace
+  const handleTransformMouseDown = () => {
+    if (gizmoTarget) {
+      gizmoInitialTransformRef.current = gizmoTarget.matrixWorld.clone();
+
+      const initialStates: Record<string, BaseSceneObject> = {};
+      selectedObjects.forEach(id => {
+        const obj = objects.find(o => o.id === id);
+        if (obj) {
+          initialStates[id] = { ...obj };
+        }
+      });
+      initialObjectStatesOnDragStartRef.current = initialStates;
+      transformDataRef.current = {};
+    }
+  };
+
+  const handleTransformChange = (event?: THREE.Event) => { 
+    if (!gizmoTarget || !gizmoInitialTransformRef.current || !initialObjectStatesOnDragStartRef.current) return;
+    if (selectedObjects.length === 0) return; // Nothing selected, nothing to do
+    // Ensure initialObjectStatesOnDragStartRef.current is populated for selected objects, otherwise, something is wrong with onMouseDown
+    if (Object.keys(initialObjectStatesOnDragStartRef.current).length !== selectedObjects.length && selectedObjects.length > 0) {
+        console.error("Mismatch between selected objects and initial states cache. Aborting transform.");
+        return;
+    }
+
+    if (!transformDataRef.current) {
+      transformDataRef.current = {}; // Initialize if null, before any potential write access
+    }
+
+    // Single object selection: gizmoTarget is the object itself. Update its properties directly.
+    if (selectedObjects.length === 1 && gizmoTarget !== multiSelectGizmoProxyRef.current) {
+      const objectId = selectedObjects[0];
+      if (gizmoTarget) { // gizmoTarget is the THREE.Object3D
+        const { x: posX, y: posY, z: posZ } = gizmoTarget.position; // Local position from the object itself
+        const euler = gizmoTarget.rotation; // Local rotation (Euler) from the object itself
+        const { x: rotX, y: rotY, z: rotZ } = euler;
+        const { x: scaleX, y: scaleY, z: scaleZ } = gizmoTarget.scale; // Local scale from the object itself
+        
+        transformDataRef.current[objectId] = {
+          position: [posX, posY, posZ],
+          rotation: [rotX, rotY, rotZ],
+          scale: [scaleX, scaleY, scaleZ],
+        };
+      }
+    } else if (selectedObjects.length > 0) { // Multi-object OR single object transformed via proxy (matrix logic)
+      const currentGizmoWorldMatrix = gizmoTarget.matrixWorld.clone();
+      const initialGizmoWorldMatrix = gizmoInitialTransformRef.current; // This is a Matrix4
+      
+      // Check if initialGizmoWorldMatrix is null again, though caught by outer if, belt and braces
+      if (!initialGizmoWorldMatrix) return;
+
+      const initialGizmoWorldMatrix_inv = new THREE.Matrix4().copy(initialGizmoWorldMatrix).invert();
+      const deltaTransformMatrix = new THREE.Matrix4().multiplyMatrices(currentGizmoWorldMatrix, initialGizmoWorldMatrix_inv);
+
+      selectedObjects.forEach(id => {
+        const initialObjectState = initialObjectStatesOnDragStartRef.current![id];
+        if (!initialObjectState) {
+            console.warn(`No initial state found for object ${id} during transform.`);
+            return;
+        }
+
+        const posVec = new THREE.Vector3().fromArray(initialObjectState.position);
+        const rotArr = (initialObjectState.rotation || [0,0,0]) as [number,number,number];
+        const euler = new THREE.Euler(rotArr[0], rotArr[1], rotArr[2], 'XYZ');
+        const quat = new THREE.Quaternion().setFromEuler(euler);
+        const scaleVec = new THREE.Vector3().fromArray(initialObjectState.scale || [1,1,1]);
+        const initialObjectLocalMatrix = new THREE.Matrix4().compose(posVec, quat, scaleVec);
+
+        const newObjectWorldMatrix = new THREE.Matrix4().multiplyMatrices(deltaTransformMatrix, initialObjectLocalMatrix);
+
+        const newPositionVec = new THREE.Vector3();
+        const newQuaternion = new THREE.Quaternion();
+        const newScaleVec = new THREE.Vector3();
+        newObjectWorldMatrix.decompose(newPositionVec, newQuaternion, newScaleVec);
+
+        const newEuler = new THREE.Euler().setFromQuaternion(newQuaternion, 'XYZ');
+
+        transformDataRef.current![id] = {
+          position: newPositionVec.toArray(),
+          rotation: [newEuler.x, newEuler.y, newEuler.z],
+          scale: newScaleVec.toArray(),
+        };
+      });
+    }
+  };
+
+  const handleTransformEnd = () => {
+    if (selectedObjects.length > 0 && transformDataRef.current) {
+      const objectsToUpdate = Object.keys(transformDataRef.current);
+      if (objectsToUpdate.length > 0) {
+        handleObjectTransform(objectsToUpdate, transformDataRef.current);
+      }
+      transformDataRef.current = null; 
+      gizmoInitialTransformRef.current = null;
+    }
+  };
+
+  const transformControlsHandlers = {
+    onChange: handleTransformChange,
+    onMouseUp: handleTransformEnd,
+    onMouseDown: handleTransformMouseDown,
+  };
+
+  // Internal component to manage gizmo target using useThree
+  const GizmoManager = ({ 
+    selectedObjs, 
+    sceneObjs, 
+    setGizmoTargetFn, 
+    gizmoProxyRef 
+  }: { 
+    selectedObjs: string[], 
+    sceneObjs: SceneObject[], 
+    setGizmoTargetFn: (target: THREE.Object3D | null) => void, 
+    gizmoProxyRef: React.MutableRefObject<THREE.Object3D> 
+  }) => {
+    const { scene } = useThree();
+
+    useEffect(() => {
+      if (!scene) return;
+
+      if (selectedObjs.length === 1) {
+        const mesh = scene.getObjectByName(selectedObjs[0]);
+        setGizmoTargetFn(mesh || null);
+        if (gizmoProxyRef.current.parent) {
+          gizmoProxyRef.current.parent.remove(gizmoProxyRef.current);
+        }
+      } else if (selectedObjs.length > 1) {
+        const selectedMeshes = selectedObjs
+          .map(id => scene.getObjectByName(id))
+          .filter(obj => obj !== undefined) as THREE.Object3D[];
+
+        if (selectedMeshes.length > 0) {
+          const centroid = new THREE.Vector3();
+          selectedMeshes.forEach(mesh => {
+            const worldPosition = new THREE.Vector3();
+            mesh.getWorldPosition(worldPosition);
+            centroid.add(worldPosition);
+          });
+          centroid.divideScalar(selectedMeshes.length);
+
+          gizmoProxyRef.current.position.copy(centroid);
+          gizmoProxyRef.current.rotation.set(0, 0, 0);
+          gizmoProxyRef.current.scale.set(1, 1, 1);
+          
+          if (!gizmoProxyRef.current.parent) {
+              scene.add(gizmoProxyRef.current);
+          }
+          setGizmoTargetFn(gizmoProxyRef.current);
+        } else {
+          setGizmoTargetFn(null);
+        }
+      } else {
+        setGizmoTargetFn(null);
+        if (gizmoProxyRef.current.parent) {
+          gizmoProxyRef.current.parent.remove(gizmoProxyRef.current);
+        }
+      }
+    }, [selectedObjs, sceneObjs, scene, setGizmoTargetFn, gizmoProxyRef]);
+
+    return null; // This component does not render anything itself
+  };
 
   return (
     <div className="flex flex-col w-full h-screen overflow-hidden">
@@ -1158,20 +1312,30 @@ export function CadWorkspace() {
                           <div
                             className={cn(
                               "flex items-center justify-between p-2 rounded cursor-pointer",
-                              selectedObject === object.id
+                              selectedObjects.includes(object.id)
                                 ? "bg-blue-100 dark:bg-blue-900"
                                 : "hover:bg-gray-100 dark:hover:bg-gray-800",
                             )}
-                            onClick={() => setSelectedObject(object.id)}
+                            onClick={(e) => {
+                              if (e.shiftKey) {
+                                setSelectedObjects(
+                                  selectedObjects.includes(object.id)
+                                    ? selectedObjects.filter((id) => id !== object.id)
+                                    : [...selectedObjects, object.id]
+                                );
+                              } else {
+                                setSelectedObjects([object.id]);
+                              }
+                            }}
                           >
                             <div className="flex items-center">
                               {object.type === "cube" && <Cube className="h-4 w-4 mr-2" />}
-                              {object.type === "sphere" && <Circle className="h-4 w-4 mr-2" />}
-                              {object.type === "cylinder" && <Cylinder className="h-4 w-4 mr-2" />}
-                              {object.type === "cone" && <Cone className="h-4 w-4 mr-2" />}
-                              {object.type === "plane" && <Square className="h-4 w-4 mr-2" />}
+                              {object.type === "sphere" && <CircleIcon className="h-4 w-4 mr-2" />}
+                              {object.type === "cylinder" && <CylinderIcon className="h-4 w-4 mr-2" />}
+                              {object.type === "cone" && <ConeIcon className="h-4 w-4 mr-2" />}
+                              {object.type === "plane" && <SquareIcon className="h-4 w-4 mr-2" />}
                               {object.type === "gear" && <GearIcon className="h-4 w-4 mr-2" />}
-                              {object.type === "hex" && <Square className="h-4 w-4 mr-2" />}
+                              {object.type === "hex" && <SquareIcon className="h-4 w-4 mr-2" />}
                               <span>{object.type.charAt(0).toUpperCase() + object.type.slice(1)}</span>
                             </div>
                             <div className="flex items-center space-x-1">
@@ -1182,7 +1346,15 @@ export function CadWorkspace() {
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          <ContextMenuItem onClick={() => setSelectedObject(object.id)}>Select</ContextMenuItem>
+                          <ContextMenuItem onClick={(e) => {
+                             if (e.shiftKey && selectedObjects.includes(object.id)) {
+                                setSelectedObjects(selectedObjects.filter(id => id !== object.id));
+                            } else if (e.shiftKey) {
+                                setSelectedObjects([...selectedObjects, object.id]);
+                            } else {
+                                setSelectedObjects([object.id]);
+                            }
+                          }}>Select</ContextMenuItem>
                           <ContextMenuItem onClick={() => handleDuplicateObject(object.id)}>Duplicate</ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem className="text-red-600" onClick={() => handleDeleteObject(object.id)}>
@@ -1226,12 +1398,12 @@ export function CadWorkspace() {
                         onClick={() => handleAddPrimitive(primitiveType)}
                       >
                         {primitiveType === 'cube' && <Cube className="h-4 w-4 mr-2" />}
-                        {primitiveType === 'sphere' && <Circle className="h-4 w-4 mr-2" />}
-                        {primitiveType === 'cylinder' && <Cylinder className="h-4 w-4 mr-2" />}
-                        {primitiveType === 'cone' && <Cone className="h-4 w-4 mr-2" />}
-                        {primitiveType === 'plane' && <Square className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'sphere' && <CircleIcon className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'cylinder' && <CylinderIcon className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'cone' && <ConeIcon className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'plane' && <SquareIcon className="h-4 w-4 mr-2" />}
                         {primitiveType === 'gear' && <GearIcon className="h-4 w-4 mr-2" />}
-                        {primitiveType === 'hex' && <Square className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'hex' && <SquareIcon className="h-4 w-4 mr-2" />}
                         {primitiveType.charAt(0).toUpperCase() + primitiveType.slice(1)}
                       </Button>
                     ))}
@@ -1280,15 +1452,28 @@ export function CadWorkspace() {
             <ContextMenuTrigger asChild className="w-full h-full">
               <Canvas shadows>
                 <Suspense fallback={null}>
+                  <GizmoManager 
+                    selectedObjs={selectedObjects}
+                    sceneObjs={objects}
+                    setGizmoTargetFn={setGizmoTarget}
+                    gizmoProxyRef={multiSelectGizmoProxyRef}
+                  />
                   <Scene
                     objects={objects}
-                    selectedObject={selectedObject}
-                    setSelectedObject={setSelectedObject}
+                    selectedObjects={selectedObjects}
+                    setSelectedObjects={setSelectedObjects}
                     onDeleteObject={handleDeleteObject}
                     onDuplicateObject={handleDuplicateObject}
-                    transformMode={transformMode}
-                    onObjectTransform={handleObjectTransform}
                   />
+                  {gizmoTarget && selectedObjects.length > 0 && (
+                    <TransformControls
+                      object={gizmoTarget}
+                      mode={transformMode}
+                      onChange={transformControlsHandlers.onChange}
+                      onMouseUp={transformControlsHandlers.onMouseUp}
+                      onMouseDown={transformControlsHandlers.onMouseDown}
+                    />
+                  )}
                   <OrbitControls makeDefault />
                   <Environment preset="studio" />
                 </Suspense>
@@ -1303,7 +1488,7 @@ export function CadWorkspace() {
                   ))}
                 </ContextMenuSubContent>
               </ContextMenuSub>
-              <ContextMenuItem onClick={() => setSelectedObject(null)}>Deselect All</ContextMenuItem>
+              <ContextMenuItem onClick={() => setSelectedObjects([])}>Deselect All</ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
 
@@ -1380,7 +1565,7 @@ export function CadWorkspace() {
                             step="0.1"
                             value={objectProperties.position[axis]}
                             onChange={(e) => handlePropertyChange("position", axis, e.target.value)}
-                            disabled={!selectedObject}
+                            disabled={selectedObjects.length !== 1}
                           />
                         </div>
                       ))}
@@ -1398,7 +1583,7 @@ export function CadWorkspace() {
                             step="1"
                             value={objectProperties.rotation[axis]} 
                             onChange={(e) => handlePropertyChange("rotation", axis, e.target.value)}
-                            disabled={!selectedObject}
+                            disabled={selectedObjects.length !== 1}
                           />
                         </div>
                       ))}
@@ -1416,7 +1601,7 @@ export function CadWorkspace() {
                             step="0.1"
                             value={objectProperties.scale[axis]}
                             onChange={(e) => handlePropertyChange("scale", axis, e.target.value)}
-                            disabled={!selectedObject}
+                            disabled={selectedObjects.length !== 1}
                           />
                         </div>
                       ))}
@@ -1434,7 +1619,7 @@ export function CadWorkspace() {
                             step="0.1"
                             value={objectProperties.dimensions[dim]}
                             onChange={(e) => handlePropertyChange("dimensions", dim, e.target.value)}
-                            disabled={!selectedObject || !objects.find(o=>o.id===selectedObject)?.type || !(["cube", "sphere", "cylinder", "cone", "plane", "gear", "hex"].includes(objects.find(o=>o.id===selectedObject)?.type || ""))}
+                            disabled={selectedObjects.length !== 1 || !objects.find(o=>o.id===selectedObjects[0])?.type || !(["cube", "sphere", "cylinder", "cone", "plane", "gear", "hex"].includes(objects.find(o=>o.id===selectedObjects[0])?.type || ""))}
                           />
                         </div>
                       ))}
@@ -1444,7 +1629,7 @@ export function CadWorkspace() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Lock Aspect Ratio</Label>
-                      <Switch disabled={!selectedObject} />
+                      <Switch disabled={selectedObjects.length !== 1} />
                     </div>
                   </div>
                 </TabsContent>
