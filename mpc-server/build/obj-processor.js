@@ -24,7 +24,7 @@ export class ObjProcessor {
                 secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
             }
         });
-        console.log('S3 client initialized');
+        // console.log('S3 client initialized');
         // List and print all files in the bucket on startup
         this.printBucketContents().catch(error => {
             console.error('Error listing bucket contents:', error);

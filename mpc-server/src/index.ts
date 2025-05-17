@@ -96,6 +96,17 @@ server.tool(
   }
 );
 
+server.tool(
+  "list_models",
+  {},
+  async () => {
+    const models = await objProcessor.listModels();
+    return {
+      content: [{ type: "text", text: JSON.stringify(models) }]
+    };
+  }
+);
+
 // Start the server
 async function main() {
   const transport = new StdioServerTransport();

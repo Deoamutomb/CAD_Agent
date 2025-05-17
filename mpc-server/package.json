@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node build/index.js",
+    "start:http": "node build/http-server.js",
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\""
   },
   "files": [
