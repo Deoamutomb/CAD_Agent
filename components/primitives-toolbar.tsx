@@ -1,10 +1,7 @@
 "use client"
 
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Square,
   Circle,
@@ -12,18 +9,18 @@ import {
   CuboidIcon as Cube,
   Cone,
   Hexagon,
-  ChevronDown,
   Settings,
   Cog,
   PlusCircle,
 } from "lucide-react"
+import React from "react"
 
 // Custom gear icon since Lucide doesn't have one
 const GearIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
+    width="18"
+    height="18"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -51,8 +48,8 @@ const GearIcon = () => (
 const ThreadIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
+    width="18"
+    height="18"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -72,8 +69,8 @@ const ThreadIcon = () => (
 const BearingIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
+    width="18"
+    height="18"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -94,8 +91,8 @@ const BearingIcon = () => (
 const SpringIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
+    width="18"
+    height="18"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -112,94 +109,53 @@ const SpringIcon = () => (
   </svg>
 )
 
-// Define primitive categories and their items
-const primitiveCategories = [
-  {
-    id: "basic",
-    label: "Basic",
-    items: [
-      { id: "cube", label: "Cube", icon: <Cube size={18} /> },
-      { id: "sphere", label: "Sphere", icon: <Circle size={18} /> },
-      { id: "cylinder", label: "Cylinder", icon: <Cylinder size={18} /> },
-      { id: "cone", label: "Cone", icon: <Cone size={18} /> },
-      { id: "plane", label: "Plane", icon: <Square size={18} /> },
-    ],
-  },
-  {
-    id: "mechanical",
-    label: "Mechanical",
-    items: [
-      { id: "gear", label: "Gear", icon: <GearIcon /> },
-      { id: "thread", label: "Thread", icon: <ThreadIcon /> },
-      { id: "bearing", label: "Bearing", icon: <BearingIcon /> },
-      { id: "spring", label: "Spring", icon: <SpringIcon /> },
-      { id: "hex", label: "Hex", icon: <Hexagon size={18} /> },
-    ],
-  },
-  {
-    id: "advanced",
-    label: "Advanced",
-    items: [
-      { id: "torus", label: "Torus", icon: <Circle size={18} /> },
-      { id: "extrude", label: "Extrude", icon: <Square size={18} /> },
-      { id: "revolve", label: "Revolve", icon: <Settings size={18} /> },
-      { id: "sweep", label: "Sweep", icon: <Cog size={18} /> },
-      { id: "loft", label: "Loft", icon: <PlusCircle size={18} /> },
-    ],
-  },
-]
+const allPrimitiveItems = [
+  // Basic
+  { id: "cube", label: "Cube", icon: <Cube size={18} />, category: "Basic" },
+  { id: "sphere", label: "Sphere", icon: <Circle size={18} />, category: "Basic" },
+  { id: "cylinder", label: "Cylinder", icon: <Cylinder size={18} />, category: "Basic" },
+  { id: "cone", label: "Cone", icon: <Cone size={18} />, category: "Basic" },
+  { id: "plane", label: "Plane", icon: <Square size={18} />, category: "Basic" },
+  // Mechanical
+  { id: "gear", label: "Gear", icon: <GearIcon />, category: "Mechanical" },
+  { id: "thread", label: "Thread", icon: <ThreadIcon />, category: "Mechanical" },
+  { id: "bearing", label: "Bearing", icon: <BearingIcon />, category: "Mechanical" },
+  { id: "spring", label: "Spring", icon: <SpringIcon />, category: "Mechanical" },
+  { id: "hex", label: "Hex", icon: <Hexagon size={18} />, category: "Mechanical" },
+  // Advanced
+  { id: "torus", label: "Torus", icon: <Circle size={18} />, category: "Advanced" }, 
+  { id: "extrude", label: "Extrude", icon: <PlusCircle size={18} />, category: "Advanced" },
+  { id: "revolve", label: "Revolve", icon: <Settings size={18} />, category: "Advanced" },
+  { id: "sweep", label: "Sweep", icon: <Cog size={18} />, category: "Advanced" },
+  { id: "loft", label: "Loft", icon: <Square size={18} />, category: "Advanced" },
+];
 
 export function PrimitivesToolbar({ onAddPrimitive }) {
-  const [activeCategory, setActiveCategory] = useState("basic")
-
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-1 flex items-center">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-1 flex items-center space-x-1">
       <TooltipProvider>
-        <Tabs value={activeCategory} onValueChange={setActiveCategory} className="w-full">
-          <TabsList className="grid grid-cols-3">
-            <TabsTrigger value="basic">Basic</TabsTrigger>
-            <TabsTrigger value="mechanical">Mechanical</TabsTrigger>
-            <TabsTrigger value="advanced">Advanced</TabsTrigger>
-          </TabsList>
-
-          {primitiveCategories.map((category) => (
-            <TabsContent key={category.id} value={category.id} className="flex space-x-1 p-1">
-              {category.items.map((item) => (
-                <Tooltip key={item.id}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={() => onAddPrimitive(item.id)} className="h-9 w-9">
-                      {item.icon}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{item.label}</p>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </TabsContent>
-          ))}
-        </Tabs>
-      </TooltipProvider>
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" className="ml-1">
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-56 p-2">
-          <div className="grid grid-cols-2 gap-2">
-            {primitiveCategories.flatMap((category) =>
-              category.items.map((item) => (
-                <Button key={item.id} variant="ghost" className="justify-start" onClick={() => onAddPrimitive(item.id)}>
-                  <span className="mr-2">{item.icon}</span>
-                  {item.label}
-                </Button>
-              )),
+        {allPrimitiveItems.map((item, index) => (
+          <React.Fragment key={item.id}>
+            {/* Add a divider before Mechanical and Advanced sections */}
+            {(item.category === "Mechanical" && allPrimitiveItems[index-1]?.category === "Basic") && (
+              <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
             )}
-          </div>
-        </PopoverContent>
-      </Popover>
+            {(item.category === "Advanced" && allPrimitiveItems[index-1]?.category === "Mechanical") && (
+              <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={() => onAddPrimitive(item.id)} className="h-9 w-9">
+                  {item.icon}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{item.label}</p>
+              </TooltipContent>
+            </Tooltip>
+          </React.Fragment>
+        ))}
+      </TooltipProvider>
     </div>
   )
 }

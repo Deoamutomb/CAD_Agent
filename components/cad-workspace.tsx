@@ -2,8 +2,8 @@
 
 import { ContextMenuTrigger } from "@/components/ui/context-menu"
 
-import { useState, useRef, Suspense, useCallback, useEffect } from "react"
-import { Canvas, useThree } from "@react-three/fiber"
+import { useState, useRef, Suspense, useCallback, useEffect, MouseEvent as ReactMouseEvent } from "react"
+import { Canvas, useThree, Euler } from "@react-three/fiber"
 import { OrbitControls, Environment, Html, TransformControls, Grid } from "@react-three/drei"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -74,13 +74,79 @@ import {
 // Import other icons
 import { Circle, Cylinder, Cone, Square } from "lucide-react"
 
+// Define types for scene objects
+export type PrimitiveType = "cube" | "sphere" | "cylinder" | "cone" | "plane" | "gear" | "hex";
+
+export interface BaseSceneObject {
+  id: string;
+  type: PrimitiveType;
+  position: [number, number, number];
+  color: string;
+  rotation?: [number, number, number]; // Euler angles
+  scale?: [number, number, number];
+}
+
+export interface CubeObject extends BaseSceneObject {
+  type: "cube";
+  size: [number, number, number];
+}
+
+export interface SphereObject extends BaseSceneObject {
+  type: "sphere";
+  radius: number;
+}
+
+export interface CylinderObject extends BaseSceneObject {
+  type: "cylinder";
+  args: [number, number, number, number]; // radiusTop, radiusBottom, height, radialSegments
+}
+
+export interface ConeObject extends BaseSceneObject {
+  type: "cone";
+  args: [number, number, number]; // radius, height, radialSegments
+}
+
+export interface PlaneObject extends BaseSceneObject {
+  type: "plane";
+  size: [number, number];
+}
+
+export interface GearObject extends BaseSceneObject {
+  type: "gear";
+  radius: number;
+  teeth: number;
+}
+
+export interface HexObject extends BaseSceneObject {
+  type: "hex";
+  radius: number;
+  height: number;
+}
+
+export type SceneObject =
+  | CubeObject
+  | SphereObject
+  | CylinderObject
+  | ConeObject
+  | PlaneObject
+  | GearObject
+  | HexObject;
+
+
+interface CameraModelProps {
+  color?: string;
+  position?: [number, number, number];
+  selected?: boolean;
+  onSelect: () => void;
+}
+
 // Mock camera model using basic geometries instead of loading external files
-function CameraModel({ color = "#b19cd9", position = [0, 0, 0], selected = false, onSelect }) {
-  const group = useRef()
+function CameraModel({ color = "#b19cd9", position = [0, 0, 0], selected = false, onSelect }: CameraModelProps) {
+  const group = useRef<THREE.Group>(null!)
 
   return (
     <group
-      position={position}
+      position={position as [number, number, number]}
       ref={group}
       onClick={(e) => {
         e.stopPropagation()
@@ -125,8 +191,8 @@ function CameraModel({ color = "#b19cd9", position = [0, 0, 0], selected = false
       </mesh>
 
       {/* Camera button */}
-      <mesh castShadow receiveShadow position={[0.8, 0.3, 0]}>
-        <cylinderGeometry args={[0.15, 0.15, 0.1, 12]} rotation={[Math.PI / 2, 0, 0]} />
+      <mesh castShadow receiveShadow position={[0.8, 0.3, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.15, 0.15, 0.1, 12]} />
         <meshStandardMaterial
           color="#ff3333"
           roughness={0.3}
@@ -145,6 +211,16 @@ function CameraModel({ color = "#b19cd9", position = [0, 0, 0], selected = false
   )
 }
 
+interface SceneProps {
+  objects: SceneObject[];
+  selectedObject: string | null;
+  setSelectedObject: (id: string | null) => void;
+  onDeleteObject: (id: string) => void;
+  onDuplicateObject: (id: string) => void;
+  transformMode: "translate" | "rotate" | "scale";
+  onObjectTransform: (id: string, transformData: Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>) => void;
+}
+
 // Scene setup with grid and models
 function Scene({
   objects,
@@ -154,14 +230,16 @@ function Scene({
   onDuplicateObject,
   transformMode,
   onObjectTransform,
-}) {
+}: SceneProps) {
   const { camera, scene } = useThree()
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [showContextMenu, setShowContextMenu] = useState(false)
-  const [contextMenuObject, setContextMenuObject] = useState(null)
-  const [selectedMesh, setSelectedMesh] = useState(null)
+  const [contextMenuObject, setContextMenuObject] = useState<string | null>(null)
+  const [selectedMesh, setSelectedMesh] = useState<THREE.Object3D | null>(null)
+  
+  const transformDataRef = useRef<Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>> | null>(null);
 
-  // Effect to get the actual mesh object when selectedObject (ID) changes
+
   useEffect(() => {
     if (selectedObject && scene) {
       const mesh = scene.getObjectByName(selectedObject)
@@ -171,8 +249,7 @@ function Scene({
     }
   }, [selectedObject, scene])
 
-  // Handle right-click on objects
-  const handleContextMenu = (e, object) => {
+  const handleContextMenu = (e: ReactMouseEvent, object: SceneObject) => {
     e.stopPropagation()
     e.preventDefault()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
@@ -180,15 +257,13 @@ function Scene({
     setShowContextMenu(true)
   }
 
-  // Handle right-click on canvas (background)
-  const handleCanvasContextMenu = (e) => {
+  const handleCanvasContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setContextMenuObject(null)
     setShowContextMenu(true)
   }
 
-  // Close context menu when clicking elsewhere
   useEffect(() => {
     const handleClick = () => {
       if (showContextMenu) {
@@ -201,25 +276,29 @@ function Scene({
     }
   }, [showContextMenu])
 
-  // Handle transform changes
-  const handleTransformChange = (event) => {
+  const handleTransformChange = (event?: THREE.Event) => {
     if (event && event.target && event.target.object) {
-      const transformedObject = event.target.object
-      const { x: posX, y: posY, z: posZ } = transformedObject.position
-      const { x: rotX, y: rotY, z: rotZ } = transformedObject.rotation
-      const { x: scaleX, y: scaleY, z: scaleZ } = transformedObject.scale
+      const transformedObject = event.target.object;
+      const { x: posX, y: posY, z: posZ } = transformedObject.position;
+      const euler = transformedObject.rotation as unknown as THREE.Euler;
+      const { x: rotX, y: rotY, z: rotZ } = euler;
+      const { x: scaleX, y: scaleY, z: scaleZ } = transformedObject.scale;
 
-      const transformData = {
+      transformDataRef.current = {
         position: [posX, posY, posZ],
         rotation: [rotX, rotY, rotZ],
         scale: [scaleX, scaleY, scaleZ],
-      }
-
-      if (selectedObject) {
-        onObjectTransform(selectedObject, transformData)
-      }
+      };
     }
-  }
+  };
+
+  const handleTransformEnd = () => {
+    if (selectedObject && transformDataRef.current) {
+      onObjectTransform(selectedObject, transformDataRef.current);
+      transformDataRef.current = null; 
+    }
+  };
+  
 
   return (
     <>
@@ -237,100 +316,66 @@ function Scene({
         fadeStrength={1.5}
       />
 
-      {/* Render all objects */}
       {objects.map((object) => {
+        const commonProps = {
+          key: object.id,
+          id: object.id,
+          position: object.position,
+          color: object.color,
+          selected: selectedObject === object.id,
+          onSelect: setSelectedObject,
+          onContextMenu: (e: ReactMouseEvent) => handleContextMenu(e, object),
+        };
         switch (object.type) {
           case "cube":
             return (
               <CubePrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                size={object.size || [1, 1, 1]}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                size={object.size}
               />
             )
           case "sphere":
             return (
               <SpherePrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                radius={object.radius || 0.5}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                radius={object.radius}
               />
             )
           case "cylinder":
             return (
               <CylinderPrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                args={object.args || [0.5, 0.5, 1, 32]}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                args={object.args}
               />
             )
           case "cone":
             return (
               <ConePrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                args={object.args || [0.5, 1, 32]}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                args={object.args}
               />
             )
           case "plane":
             return (
               <PlanePrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                size={object.size || [1, 1]}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                size={object.size}
               />
             )
           case "gear":
             return (
               <GearPrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                radius={object.radius || 0.7}
-                teeth={object.teeth || 10}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                radius={object.radius}
+                teeth={object.teeth}
               />
             )
           case "hex":
             return (
               <HexPrimitive
-                key={object.id}
-                id={object.id}
-                position={object.position}
-                radius={object.radius || 0.5}
-                height={object.height || 0.2}
-                color={object.color}
-                selected={selectedObject === object.id}
-                onSelect={() => setSelectedObject(object.id)}
-                onContextMenu={(e) => handleContextMenu(e, object)}
+                {...commonProps}
+                radius={object.radius}
+                height={object.height}
               />
             )
           default:
@@ -338,12 +383,15 @@ function Scene({
         }
       })}
 
-      {/* Transform controls for selected object */}
       {selectedMesh && (
-        <TransformControls object={selectedMesh} mode={transformMode} onObjectChange={handleTransformChange} />
+        <TransformControls 
+          object={selectedMesh} 
+          mode={transformMode} 
+          onChange={handleTransformChange} 
+          onMouseUp={handleTransformEnd} 
+        />
       )}
 
-      {/* Context menu for objects */}
       {showContextMenu && (
         <Html
           position={[0, 0, 0]}
@@ -364,7 +412,7 @@ function Scene({
                 <button
                   className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   onClick={() => {
-                    onDuplicateObject(contextMenuObject)
+                    if(contextMenuObject) onDuplicateObject(contextMenuObject)
                     setShowContextMenu(false)
                   }}
                 >
@@ -374,7 +422,7 @@ function Scene({
                 <button
                   className="w-full text-left px-2 py-1 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   onClick={() => {
-                    onDeleteObject(contextMenuObject)
+                    if(contextMenuObject) onDeleteObject(contextMenuObject)
                     setShowContextMenu(false)
                   }}
                 >
@@ -386,23 +434,12 @@ function Scene({
                 <button
                   className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   onClick={() => {
-                    // Add a cube at the camera's position
                     const direction = new THREE.Vector3()
                     camera.getWorldDirection(direction)
-                    const position = new THREE.Vector3()
-                    camera.getWorldPosition(position)
-                    position.add(direction.multiplyScalar(5))
-
-                    // Add a new cube
-                    const newObject = {
-                      id: `cube_${Date.now()}`,
-                      type: "cube",
-                      position: [position.x, position.y, position.z],
-                      color: "#9ae6b4",
-                    }
-
-                    // Add the object to the scene
-                    // This would be handled by the parent component
+                    const newPositionVec = new THREE.Vector3()
+                    camera.getWorldPosition(newPositionVec)
+                    newPositionVec.add(direction.multiplyScalar(5))
+                    console.log("Request to add cube at", newPositionVec.toArray());
                     setShowContextMenu(false)
                   }}
                 >
@@ -411,7 +448,7 @@ function Scene({
                 <button
                   className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                   onClick={() => {
-                    // Similar to adding a cube
+                    console.log("Request to add sphere");
                     setShowContextMenu(false)
                   }}
                 >
@@ -426,8 +463,7 @@ function Scene({
   )
 }
 
-// Custom gear icon since Lucide doesn't have one
-const GearIcon = ({ className }) => (
+const GearIcon = ({ className }: { className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width="24"
@@ -456,135 +492,149 @@ const GearIcon = ({ className }) => (
   </svg>
 )
 
-// Main CAD workspace component
+// Define types for AI chat messages
+interface AiChatMessage {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+}
+
 export function CadWorkspace() {
   const [showLeftPanel, setShowLeftPanel] = useState(true)
   const [showRightPanel, setShowRightPanel] = useState(true)
   const [selectedModel, setSelectedModel] = useState("camera")
-  const [modelColor, setModelColor] = useState("#b19cd9") // Purple
-  const [selectedObject, setSelectedObject] = useState(null)
-  const [transformMode, setTransformMode] = useState("translate")
+  const [selectedObject, setSelectedObject] = useState<string | null>(null)
+  const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate")
   const [activeTab, setActiveTab] = useState("transform")
   const [aiPrompt, setAiPrompt] = useState("")
   const [showAiPanel, setShowAiPanel] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [objectToDelete, setObjectToDelete] = useState(null)
+  const [objectToDelete, setObjectToDelete] = useState<string | null>(null)
   const { toast } = useToast()
+  const [aiChatMessages, setAiChatMessages] = useState<AiChatMessage[]>([])
 
-  // State for objects in the scene
-  const [objects, setObjects] = useState([
-    { id: "cube_1", type: "cube", position: [-3, 0.5, 0], size: [1, 1, 1], color: "#9ae6b4" },
-    { id: "sphere_1", type: "sphere", position: [-3, 0.5, 2], radius: 0.5, color: "#90cdf4" },
-    { id: "cylinder_1", type: "cylinder", position: [-1, 0.5, -3], args: [0.5, 0.5, 1, 32], color: "#f6ad55" },
-    { id: "gear_1", type: "gear", position: [3, 0.5, -2], radius: 0.7, color: "#fc8181" },
-  ])
+  const initialObjects: SceneObject[] = [
+    { id: "cube_1", type: "cube", position: [-3, 0.5, 0], size: [1, 1, 1], color: "#9ae6b4", rotation: [0,0,0], scale: [1,1,1] },
+    { id: "sphere_1", type: "sphere", position: [-3, 0.5, 2], radius: 0.5, color: "#90cdf4", rotation: [0,0,0], scale: [1,1,1] },
+    { id: "cylinder_1", type: "cylinder", position: [-1, 0.5, -3], args: [0.5, 0.5, 1, 32], color: "#f6ad55", rotation: [0,0,0], scale: [1,1,1] },
+    { id: "gear_1", type: "gear", position: [3, 0.5, -2], radius: 0.7, teeth: 10, color: "#fc8181", rotation: [0,0,0], scale: [1,1,1] },
+  ]
+  const [objects, setObjects] = useState<SceneObject[]>(initialObjects)
 
-  // State for object properties
   const [objectProperties, setObjectProperties] = useState({
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
-    dimensions: { width: 10, height: 5, depth: 3 },
+    dimensions: { width: 10, height: 5, depth: 3 }, 
   })
 
-  // History for undo/redo
-  const [history, setHistory] = useState([objects])
+  const [history, setHistory] = useState<SceneObject[][]>([objects])
   const [historyIndex, setHistoryIndex] = useState(0)
 
-  // Update object properties when selection changes
   useEffect(() => {
     if (selectedObject) {
       const object = objects.find((obj) => obj.id === selectedObject)
       if (object) {
+        const rotation = object.rotation || [0, 0, 0];
+        const scale = object.scale || [1, 1, 1];
+
+        let dimensions = { width: 1, height: 1, depth: 1 }; 
+        if (object.type === "cube") {
+          dimensions = { width: object.size[0] * 10, height: object.size[1] * 10, depth: object.size[2] * 10 };
+        } else if (object.type === "sphere") {
+          dimensions = { width: object.radius * 2 * 10, height: object.radius * 2 * 10, depth: object.radius * 2 * 10 };
+        } else if (object.type === "cylinder") {
+          dimensions = { width: object.args[0] * 2 * 10, height: object.args[2] * 10, depth: object.args[1] * 2 * 10 };
+        } else if (object.type === "cone") {
+          dimensions = { width: object.args[0] * 2 * 10, height: object.args[1] * 10, depth: object.args[0] * 2 * 10 };
+        } else if (object.type === "plane") {
+          dimensions = { width: object.size[0] * 10, height: 0.1 * 10, depth: object.size[1] * 10 }; // Height for plane is visual depth
+        } else if (object.type === "gear") {
+          dimensions = { width: object.radius * 2.2 * 10, height: 0.3 * 10, depth: object.radius * 2.2 * 10 }; // Approximate
+        } else if (object.type === "hex") {
+          dimensions = { width: object.radius * 2 * 10, height: object.height * 10, depth: object.radius * 2 * 10 };
+        }
+
+
         setObjectProperties({
           position: {
             x: object.position[0],
             y: object.position[1],
             z: object.position[2],
           },
-          rotation: object.rotation
-            ? {
-                x: object.rotation[0],
-                y: object.rotation[1],
-                z: object.rotation[2],
-              }
-            : { x: 0, y: 0, z: 0 },
-          scale: object.scale
-            ? {
-                x: object.scale[0],
-                y: object.scale[1],
-                z: object.scale[2],
-              }
-            : { x: 1, y: 1, z: 1 },
-          dimensions: {
-            width: object.size ? object.size[0] * 10 : 10,
-            height: object.size ? object.size[1] * 10 : 5,
-            depth: object.size ? object.size[2] * 10 : 3,
+          rotation: {
+            x: THREE.MathUtils.radToDeg(rotation[0]), 
+            y: THREE.MathUtils.radToDeg(rotation[1]),
+            z: THREE.MathUtils.radToDeg(rotation[2]),
           },
+          scale: {
+            x: scale[0],
+            y: scale[1],
+            z: scale[2],
+          },
+          dimensions: dimensions,
         })
       }
+    } else {
+       setObjectProperties({
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        dimensions: { width: 10, height: 5, depth: 3 },
+      });
     }
   }, [selectedObject, objects])
 
-  // Handle adding a new primitive
   const handleAddPrimitive = useCallback(
-    (primitiveType) => {
-      // Generate a unique ID for the new primitive
+    (primitiveType: PrimitiveType) => {
       const id = `${primitiveType}_${Date.now()}`
-
-      // Position the new primitive at a random location near the center
       const x = (Math.random() - 0.5) * 4
       const z = (Math.random() - 0.5) * 4
+      let newObject: SceneObject;
 
-      // Create the new object
-      const newObject = {
-        id,
-        type: primitiveType,
+      const baseNewObject: Omit<BaseSceneObject, 'type' | 'id'> = { 
         position: [x, 0.5, z],
         color: getRandomColor(),
-      }
+        rotation: [0,0,0], 
+        scale: [1,1,1],    
+      };
 
-      // Add specific properties based on primitive type
       switch (primitiveType) {
         case "cube":
-          newObject.size = [1, 1, 1]
+          newObject = { ...baseNewObject, id, type: "cube", size: [1, 1, 1] };
           break
         case "sphere":
-          newObject.radius = 0.5
+          newObject = { ...baseNewObject, id, type: "sphere", radius: 0.5 };
           break
         case "cylinder":
-          newObject.args = [0.5, 0.5, 1, 32]
+          newObject = { ...baseNewObject, id, type: "cylinder", args: [0.5, 0.5, 1, 32] };
           break
         case "cone":
-          newObject.args = [0.5, 1, 32]
+          newObject = { ...baseNewObject, id, type: "cone", args: [0.5, 1, 32] };
           break
         case "plane":
-          newObject.size = [1, 1]
+          newObject = { ...baseNewObject, id, type: "plane", size: [1, 1] };
           break
         case "gear":
-          newObject.radius = 0.7
-          newObject.teeth = 10
+          newObject = { ...baseNewObject, id, type: "gear", radius: 0.7, teeth: 10 };
           break
         case "hex":
-          newObject.radius = 0.5
-          newObject.height = 0.2
+          newObject = { ...baseNewObject, id, type: "hex", radius: 0.5, height: 0.2 };
           break
+        default:
+          const exhaustiveCheck: never = primitiveType;
+          console.error("Unknown primitive type:", exhaustiveCheck)
+          return;
       }
 
-      // Add the new object to the scene
       const newObjects = [...objects, newObject]
       setObjects(newObjects)
 
-      // Add to history
       const newHistory = history.slice(0, historyIndex + 1)
       newHistory.push(newObjects)
       setHistory(newHistory)
       setHistoryIndex(newHistory.length - 1)
-
-      // Select the new object
       setSelectedObject(id)
-
-      // Show a notification
       toast({
         title: "Object Added",
         description: `Added ${primitiveType} to the scene`,
@@ -593,52 +643,38 @@ export function CadWorkspace() {
     [objects, history, historyIndex, toast],
   )
 
-  // Handle deleting an object
-  const handleDeleteObject = useCallback((objectId) => {
+  const handleDeleteObject = useCallback((objectId: string) => {
     setObjectToDelete(objectId)
     setShowDeleteDialog(true)
   }, [])
 
-  // Confirm object deletion
   const confirmDeleteObject = useCallback(() => {
     if (objectToDelete) {
       const newObjects = objects.filter((obj) => obj.id !== objectToDelete)
       setObjects(newObjects)
-
-      // Add to history
       const newHistory = history.slice(0, historyIndex + 1)
       newHistory.push(newObjects)
       setHistory(newHistory)
       setHistoryIndex(newHistory.length - 1)
-
-      // Deselect if the selected object was deleted
       if (selectedObject === objectToDelete) {
         setSelectedObject(null)
       }
-
-      // Show a notification
       toast({
         title: "Object Deleted",
         description: "Object has been removed from the scene",
       })
-
       setShowDeleteDialog(false)
       setObjectToDelete(null)
     }
   }, [objectToDelete, objects, history, historyIndex, selectedObject, toast])
 
-  // Handle duplicating an object
   const handleDuplicateObject = useCallback(
-    (objectId) => {
+    (objectId: string) => {
       const objectToDuplicate = objects.find((obj) => obj.id === objectId)
-
       if (objectToDuplicate) {
-        // Create a new ID
         const newId = `${objectToDuplicate.type}_${Date.now()}`
-
-        // Create a copy with a slight offset
-        const newObject = {
-          ...JSON.parse(JSON.stringify(objectToDuplicate)),
+        const newObject: SceneObject = {
+          ...JSON.parse(JSON.stringify(objectToDuplicate)), 
           id: newId,
           position: [
             objectToDuplicate.position[0] + 0.5,
@@ -646,21 +682,13 @@ export function CadWorkspace() {
             objectToDuplicate.position[2] + 0.5,
           ],
         }
-
-        // Add the new object to the scene
         const newObjects = [...objects, newObject]
         setObjects(newObjects)
-
-        // Add to history
         const newHistory = history.slice(0, historyIndex + 1)
         newHistory.push(newObjects)
         setHistory(newHistory)
         setHistoryIndex(newHistory.length - 1)
-
-        // Select the new object
         setSelectedObject(newId)
-
-        // Show a notification
         toast({
           title: "Object Duplicated",
           description: `Duplicated ${objectToDuplicate.type}`,
@@ -670,10 +698,8 @@ export function CadWorkspace() {
     [objects, history, historyIndex, toast],
   )
 
-  // Handle object transformation
   const handleObjectTransform = useCallback(
-    (objectId, transformData) => {
-      // Update the object's position/rotation/scale
+    (objectId: string, transformData: Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>) => {
       const newObjects = objects.map((obj) => {
         if (obj.id === objectId) {
           return {
@@ -683,110 +709,150 @@ export function CadWorkspace() {
         }
         return obj
       })
-
       setObjects(newObjects)
-
-      // We don't add to history here to avoid too many history entries
-      // Instead, we'll add to history when the transform is complete
+      const newHistory = history.slice(0, historyIndex + 1);
+      newHistory.push(newObjects);
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
     },
-    [objects],
+    [objects, history, historyIndex], 
   )
 
-  // Handle property changes from the UI
   const handlePropertyChange = useCallback(
-    (property, axis, value) => {
+    (property: "position" | "rotation" | "scale" | "dimensions", axis: "x" | "y" | "z" | "width" | "height" | "depth", value: string) => {
       if (!selectedObject) return
 
-      // Update the local state
-      setObjectProperties((prev) => ({
-        ...prev,
-        [property]: {
-          ...prev[property],
-          [axis]: Number.parseFloat(value),
-        },
-      }))
+      const numericValue = Number.parseFloat(value)
+      if (isNaN(numericValue)) return;
 
-      // Update the object
-      const newObjects = objects.map((obj) => {
-        if (obj.id === selectedObject) {
-          const newObj = { ...obj }
+      let newObjectsState = objects;
 
-          if (property === "position") {
-            newObj.position = [
-              axis === "x" ? Number.parseFloat(value) : obj.position[0],
-              axis === "y" ? Number.parseFloat(value) : obj.position[1],
-              axis === "z" ? Number.parseFloat(value) : obj.position[2],
-            ]
-          } else if (property === "rotation") {
-            newObj.rotation = newObj.rotation || [0, 0, 0]
-            newObj.rotation = [
-              axis === "x" ? Number.parseFloat(value) : newObj.rotation[0],
-              axis === "y" ? Number.parseFloat(value) : newObj.rotation[1],
-              axis === "z" ? Number.parseFloat(value) : newObj.rotation[2],
-            ]
-          } else if (property === "scale") {
-            newObj.scale = newObj.scale || [1, 1, 1]
-            newObj.scale = [
-              axis === "x" ? Number.parseFloat(value) : newObj.scale[0],
-              axis === "y" ? Number.parseFloat(value) : newObj.scale[1],
-              axis === "z" ? Number.parseFloat(value) : newObj.scale[2],
-            ]
-          } else if (property === "dimensions") {
-            if (obj.type === "cube") {
-              const size = [
-                axis === "width" ? Number.parseFloat(value) / 10 : obj.size[0],
-                axis === "height" ? Number.parseFloat(value) / 10 : obj.size[1],
-                axis === "depth" ? Number.parseFloat(value) / 10 : obj.size[2],
-              ]
-              newObj.size = size
-            } else if (obj.type === "sphere") {
-              if (axis === "width") {
-                newObj.radius = Number.parseFloat(value) / 20
+      setObjects((prevObjects) => {
+        newObjectsState = prevObjects.map((obj) => {
+          if (obj.id === selectedObject) {
+            const newObj = { ...obj } 
+
+            if (property === "position") {
+              const newPosition = [...newObj.position] as [number, number, number];
+              if (axis === "x") newPosition[0] = numericValue;
+              else if (axis === "y") newPosition[1] = numericValue;
+              else if (axis === "z") newPosition[2] = numericValue;
+              newObj.position = newPosition;
+            } else if (property === "rotation") {
+              const newRotation = [...(newObj.rotation || [0,0,0])] as [number, number, number];
+              const radValue = THREE.MathUtils.degToRad(numericValue); 
+              if (axis === "x") newRotation[0] = radValue;
+              else if (axis === "y") newRotation[1] = radValue;
+              else if (axis === "z") newRotation[2] = radValue;
+              newObj.rotation = newRotation;
+            } else if (property === "scale") {
+              const newScale = [...(newObj.scale || [1,1,1])] as [number, number, number];
+              if (axis === "x") newScale[0] = numericValue;
+              else if (axis === "y") newScale[1] = numericValue;
+              else if (axis === "z") newScale[2] = numericValue;
+              newObj.scale = newScale;
+            } else if (property === "dimensions") {
+              const scaledValue = numericValue / 10; 
+              if (newObj.type === "cube") {
+                const newSize = [...newObj.size] as [number,number,number];
+                if (axis === "width") newSize[0] = scaledValue;
+                else if (axis === "height") newSize[1] = scaledValue;
+                else if (axis === "depth") newSize[2] = scaledValue;
+                newObj.size = newSize;
+              } else if (newObj.type === "sphere") {
+                 if (axis === "width" || axis === "height" || axis === "depth") { 
+                    newObj.radius = scaledValue / 2;
+                 }
+              } else if (newObj.type === "cylinder") {
+                 const newArgs = [...newObj.args] as [number,number,number,number];
+                 if (axis === "width" || axis === "depth") { 
+                    newArgs[0] = scaledValue / 2;
+                    newArgs[1] = scaledValue / 2;
+                 } else if (axis === "height") {
+                    newArgs[2] = scaledValue;
+                 }
+                 newObj.args = newArgs;
+              } else if (newObj.type === "cone") {
+                const newArgs = [...newObj.args] as [number,number,number];
+                if (axis === "width" || axis === "depth") { newArgs[0] = scaledValue / 2; }
+                else if (axis === "height") { newArgs[1] = scaledValue; }
+                newObj.args = newArgs;
+              } else if (newObj.type === "plane") {
+                const newSize = [...newObj.size] as [number,number];
+                if (axis === "width") { newSize[0] = scaledValue; }
+                else if (axis === "depth") { newSize[1] = scaledValue; }
+                // Height for plane is not directly settable via size
+                newObj.size = newSize;
+              } else if (newObj.type === "gear") {
+                if (axis === "width" || axis === "depth") { newObj.radius = scaledValue / 2.2; }
+                // Height for gear is fixed for this example
+              } else if (newObj.type === "hex") {
+                if (axis === "width" || axis === "depth") { newObj.radius = scaledValue / 2; }
+                else if (axis === "height") { newObj.height = scaledValue; }
               }
-            } else if (obj.type === "cylinder") {
-              const args = [...obj.args]
-              if (axis === "width") {
-                args[0] = Number.parseFloat(value) / 20
-                args[1] = Number.parseFloat(value) / 20
-              }
-              if (axis === "height") {
-                args[2] = Number.parseFloat(value) / 10
-              }
-              newObj.args = args
             }
+            return newObj
           }
-
-          return newObj
-        }
-        return obj
-      })
-
-      setObjects(newObjects)
+          return obj
+        })
+        return newObjectsState;
+      });
+      
+      setHistory(prevHistory => {
+        const currentHistory = prevHistory.slice(0, historyIndex + 1);
+        currentHistory.push(newObjectsState); 
+        setHistoryIndex(currentHistory.length -1);
+        return currentHistory;
+      });
     },
-    [selectedObject, objects],
+    [selectedObject, objects, history, historyIndex], 
   )
 
-  // Handle undo
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
-      setHistoryIndex(historyIndex - 1)
-      setObjects(history[historyIndex - 1])
+      const newHistoryIndex = historyIndex - 1;
+      setHistoryIndex(newHistoryIndex);
+      setObjects(history[newHistoryIndex]); 
     }
   }, [history, historyIndex])
 
-  // Handle redo
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
-      setHistoryIndex(historyIndex + 1)
-      setObjects(history[historyIndex + 1])
+      const newHistoryIndex = historyIndex + 1;
+      setHistoryIndex(newHistoryIndex);
+      setObjects(history[newHistoryIndex]);
     }
   }, [history, historyIndex])
 
-  // Generate a random color
   const getRandomColor = () => {
     const colors = ["#9ae6b4", "#90cdf4", "#f6ad55", "#fc8181", "#b19cd9", "#fbd38d"]
     return colors[Math.floor(Math.random() * colors.length)]
   }
+  
+  const handleAiSubmit = () => {
+    if (!aiPrompt.trim()) return;
+    const userMessage: AiChatMessage = {
+      id: `user_${Date.now()}`,
+      sender: "user",
+      text: aiPrompt,
+    };
+    const aiThinkingMessage: AiChatMessage = {
+      id: `ai_${Date.now()}`,
+      sender: "ai",
+      text: "Thinking...", // Placeholder AI response
+    };
+    setAiChatMessages((prevMessages) => [...prevMessages, userMessage, aiThinkingMessage]);
+    console.log("AI Prompt Submitted:", aiPrompt);
+    // Simulate AI response after a delay
+    setTimeout(() => {
+        setAiChatMessages(prevMessages => prevMessages.map(msg => 
+            msg.id === aiThinkingMessage.id ? {...msg, text: "I'm ready to help with your CAD tasks! How can I assist you further?"} : msg
+        ));
+    }, 1500);
+
+    setAiPrompt("");
+  };
+
 
   return (
     <div className="flex flex-col w-full h-screen overflow-hidden">
@@ -841,16 +907,6 @@ export function CadWorkspace() {
         </div>
 
         <div className="flex items-center space-x-2">
-          <Button
-            variant={showAiPanel ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowAiPanel(!showAiPanel)}
-            className="flex items-center"
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            AI Assistant
-          </Button>
-
           <Select value={selectedModel} onValueChange={setSelectedModel}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Select model" />
@@ -900,12 +956,12 @@ export function CadWorkspace() {
         {/* Left panel */}
         {showLeftPanel && (
           <div className="w-64 border-r bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
-            <Tabs defaultValue="elements" className="flex-1 flex flex-col">
+            <Tabs defaultValue="elements" className="flex-1 flex flex-col min-h-0">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="elements">
                   <Cube className="h-4 w-4" />
                 </TabsTrigger>
-                <TabsTrigger value="ai">
+                <TabsTrigger value="ai_tab">
                   <Wand2 className="h-4 w-4" />
                 </TabsTrigger>
                 <TabsTrigger value="standards">
@@ -916,7 +972,7 @@ export function CadWorkspace() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="elements" className="flex-1 overflow-hidden flex flex-col">
+              <TabsContent value="elements" className="flex-1 overflow-hidden flex flex-col min-h-0">
                 <div className="p-4 border-b">
                   <h3 className="font-medium mb-2">Elements</h3>
                   <div className="flex items-center space-x-2">
@@ -926,8 +982,7 @@ export function CadWorkspace() {
                     </Button>
                   </div>
                 </div>
-
-                <ScrollArea className="flex-1">
+                <ScrollArea className="flex-1 min-h-0">
                   <div className="p-4 space-y-2">
                     {objects.map((object) => (
                       <ContextMenu key={object.id}>
@@ -942,7 +997,13 @@ export function CadWorkspace() {
                             onClick={() => setSelectedObject(object.id)}
                           >
                             <div className="flex items-center">
-                              <Cube className="h-4 w-4 mr-2" />
+                              {object.type === "cube" && <Cube className="h-4 w-4 mr-2" />}
+                              {object.type === "sphere" && <Circle className="h-4 w-4 mr-2" />}
+                              {object.type === "cylinder" && <Cylinder className="h-4 w-4 mr-2" />}
+                              {object.type === "cone" && <Cone className="h-4 w-4 mr-2" />}
+                              {object.type === "plane" && <Square className="h-4 w-4 mr-2" />}
+                              {object.type === "gear" && <GearIcon className="h-4 w-4 mr-2" />}
+                              {object.type === "hex" && <Square className="h-4 w-4 mr-2" />}
                               <span>{object.type.charAt(0).toUpperCase() + object.type.slice(1)}</span>
                             </div>
                             <div className="flex items-center space-x-1">
@@ -964,96 +1025,91 @@ export function CadWorkspace() {
                     ))}
                   </div>
                 </ScrollArea>
-
-                <div className="p-4 border-t">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button className="w-full">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Element
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-56 p-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button variant="ghost" className="justify-start" onClick={() => handleAddPrimitive("cube")}>
-                          <Cube className="h-4 w-4 mr-2" />
-                          Cube
-                        </Button>
-                        <Button variant="ghost" className="justify-start" onClick={() => handleAddPrimitive("sphere")}>
-                          <Circle className="h-4 w-4 mr-2" />
-                          Sphere
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="justify-start"
-                          onClick={() => handleAddPrimitive("cylinder")}
-                        >
-                          <Cylinder className="h-4 w-4 mr-2" />
-                          Cylinder
-                        </Button>
-                        <Button variant="ghost" className="justify-start" onClick={() => handleAddPrimitive("cone")}>
-                          <Cone className="h-4 w-4 mr-2" />
-                          Cone
-                        </Button>
-                        <Button variant="ghost" className="justify-start" onClick={() => handleAddPrimitive("plane")}>
-                          <Square className="h-4 w-4 mr-2" />
-                          Plane
-                        </Button>
-                        <Button variant="ghost" className="justify-start" onClick={() => handleAddPrimitive("gear")}>
-                          <GearIcon className="h-4 w-4 mr-2" />
-                          Gear
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
               </TabsContent>
 
-              {/* Other tabs content remains the same */}
-              <TabsContent value="ai" className="flex-1 overflow-hidden flex flex-col">
-                {/* AI content */}
+              <TabsContent value="ai_tab" className="flex-1 overflow-hidden flex flex-col p-4">
+                 <Label>AI Tools (Tab)</Label>
+                 <p className="text-xs text-gray-500">This is the AI tab content area.</p>
               </TabsContent>
-
-              <TabsContent value="standards" className="flex-1 overflow-hidden flex flex-col">
-                {/* Standards content */}
+              <TabsContent value="standards" className="flex-1 overflow-hidden flex flex-col p-4">
+                 <Label>Standards</Label>
+                 <p className="text-xs text-gray-500">This is the Standards tab content area.</p>
               </TabsContent>
-
-              <TabsContent value="pricing" className="flex-1 overflow-hidden flex flex-col">
-                {/* Pricing content */}
+              <TabsContent value="pricing" className="flex-1 overflow-hidden flex flex-col p-4">
+                 <Label>Pricing</Label>
+                 <p className="text-xs text-gray-500">This is the Pricing tab content area.</p>
               </TabsContent>
             </Tabs>
+            <div className="p-4 border-t">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button className="w-full">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Element
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['cube', 'sphere', 'cylinder', 'cone', 'plane', 'gear', 'hex'] as PrimitiveType[]).map((primitiveType) => (
+                       <Button
+                        key={primitiveType}
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => handleAddPrimitive(primitiveType)}
+                      >
+                        {primitiveType === 'cube' && <Cube className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'sphere' && <Circle className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'cylinder' && <Cylinder className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'cone' && <Cone className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'plane' && <Square className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'gear' && <GearIcon className="h-4 w-4 mr-2" />}
+                        {primitiveType === 'hex' && <Square className="h-4 w-4 mr-2" />}
+                        {primitiveType.charAt(0).toUpperCase() + primitiveType.slice(1)}
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         )}
 
         {/* 3D Viewport */}
         <div className="flex-1 bg-gray-100 dark:bg-gray-800 relative">
-          {/* Viewport toolbar */}
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+          {/* Consolidated Top Controls Bar */}
+          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20 bg-transparent flex items-center space-x-2 p-1 rounded-lg">
+            {/* Transform Mode Toggle Group */}
             <ToggleGroup
               type="single"
               value={transformMode}
-              onValueChange={(value) => value && setTransformMode(value)}
+              onValueChange={(value) => value && setTransformMode(value as "translate" | "rotate" | "scale")}
+              className="bg-white dark:bg-gray-800 rounded-md shadow-md p-0.5"
             >
-              <ToggleGroupItem value="translate" aria-label="Move">
-                <Move className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="rotate" aria-label="Rotate">
-                <RotateCcw className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="scale" aria-label="Scale">
-                <ZoomIn className="h-4 w-4" />
-              </ToggleGroupItem>
+              <ToggleGroupItem value="translate" aria-label="Move"><Move className="h-4 w-4" /></ToggleGroupItem>
+              <ToggleGroupItem value="rotate" aria-label="Rotate"><RotateCcw className="h-4 w-4" /></ToggleGroupItem>
+              <ToggleGroupItem value="scale" aria-label="Scale"><ZoomIn className="h-4 w-4" /></ToggleGroupItem>
             </ToggleGroup>
-          </div>
 
-          {/* Primitives Toolbar */}
-          <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10">
+            {/* Primitives Toolbar */}
             <PrimitivesToolbar onAddPrimitive={handleAddPrimitive} />
+
+            {/* AI Assistant Button Wrapper*/}
+            <div className="bg-white dark:bg-gray-800 rounded-md shadow-md p-1">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(!showAiPanel)} className="h-9 w-9">
+                                <Wand2 className="h-5 w-5" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>AI Assistant</p></TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </div>
           </div>
 
-          {/* 3D Canvas with context menu */}
           <ContextMenu>
-            <ContextMenuTrigger className="w-full h-full">
+            <ContextMenuTrigger asChild className="w-full h-full">
               <Canvas shadows>
                 <Suspense fallback={null}>
                   <Scene
@@ -1074,59 +1130,66 @@ export function CadWorkspace() {
               <ContextMenuSub>
                 <ContextMenuSubTrigger>Add Primitive</ContextMenuSubTrigger>
                 <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem onClick={() => handleAddPrimitive("cube")}>Cube</ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleAddPrimitive("sphere")}>Sphere</ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleAddPrimitive("cylinder")}>Cylinder</ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleAddPrimitive("cone")}>Cone</ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleAddPrimitive("plane")}>Plane</ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleAddPrimitive("gear")}>Gear</ContextMenuItem>
+                 {(['cube', 'sphere', 'cylinder', 'cone', 'plane', 'gear', 'hex'] as PrimitiveType[]).map((primitiveType) => (
+                    <ContextMenuItem key={primitiveType} onClick={() => handleAddPrimitive(primitiveType)}>{primitiveType.charAt(0).toUpperCase() + primitiveType.slice(1)}</ContextMenuItem>
+                  ))}
                 </ContextMenuSubContent>
               </ContextMenuSub>
               <ContextMenuItem onClick={() => setSelectedObject(null)}>Deselect All</ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
 
-          {/* AI Assistant Panel */}
+          {/* Floating AI Input Panel */}
           {showAiPanel && (
-            <div className="absolute bottom-4 left-4 right-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 z-10 max-h-60 flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium flex items-center">
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 w-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 z-20 flex flex-col space-y-3 max-h-[40vh]">
+              <div className="flex items-center justify-between">
+                 <h3 className="font-medium flex items-center text-sm">
                   <Wand2 className="h-4 w-4 mr-2" />
                   AI Assistant
                 </h3>
-                <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(false)}>
+                <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(false)} className="h-6 w-6">
                   <EyeOff className="h-4 w-4" />
                 </Button>
               </div>
-
-              <ScrollArea className="flex-1 mb-2">
-                <div className="space-y-2">
-                  <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded">
-                    <p className="text-sm">How can I help with your design today?</p>
-                  </div>
-
-                  <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded ml-8">
-                    <p className="text-sm">Can you help me create a mounting bracket?</p>
-                  </div>
-
-                  <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded">
-                    <p className="text-sm">
-                      I can help you create a mounting bracket. What specifications do you need? How many mounting
-                      holes, what dimensions, and what load does it need to support?
-                    </p>
-                  </div>
+              <ScrollArea className="flex-1 pr-2">
+                <div className="space-y-3">
+                  {aiChatMessages.length === 0 ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
+                      <p>Hey there! I'm your AI Assistant, ready to help you design.</p>
+                      <p>What can we create today?</p>
+                    </div>
+                  ) : (
+                    aiChatMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          "p-2 rounded-lg text-sm",
+                          msg.sender === "user" ? "bg-blue-100 dark:bg-blue-900 ml-auto" : "bg-gray-100 dark:bg-gray-700 mr-auto",
+                          "max-w-[85%]"
+                        )}
+                      >
+                        {msg.text}
+                      </div>
+                    ))
+                  )}
                 </div>
               </ScrollArea>
-
-              <div className="flex">
+              <div className="flex items-center space-x-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                 <Input
                   placeholder="Ask the AI assistant..."
-                  className="flex-1"
+                  className="flex-1 text-sm"
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault(); // Prevent newline on enter unless shift is pressed
+                      handleAiSubmit();
+                    }
+                  }}
                 />
-                <Button className="ml-2">
-                  <MessageSquareText className="h-4 w-4" />
+                <Button size="sm" onClick={handleAiSubmit} disabled={!aiPrompt.trim()}>
+                  <MessageSquareText className="h-4 w-4 mr-1" />
+                  Send
                 </Button>
               </div>
             </div>
@@ -1136,11 +1199,10 @@ export function CadWorkspace() {
         {/* Right panel */}
         {showRightPanel && (
           <div className="w-80 border-l bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-              <TabsList className="grid w-full grid-cols-3">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="transform">Transform</TabsTrigger>
                 <TabsTrigger value="material">Material</TabsTrigger>
-                <TabsTrigger value="decals">Decals</TabsTrigger>
               </TabsList>
 
               <ScrollArea className="flex-1">
@@ -1148,149 +1210,86 @@ export function CadWorkspace() {
                   <div className="space-y-2">
                     <Label>Position</Label>
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">X</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.position.x}
-                          onChange={(e) => handlePropertyChange("position", "x", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Y</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.position.y}
-                          onChange={(e) => handlePropertyChange("position", "y", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Z</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.position.z}
-                          onChange={(e) => handlePropertyChange("position", "z", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
+                      {(["x", "y", "z"] as const).map((axis) => (
+                        <div className="space-y-1" key={axis}>
+                          <Label className="text-xs">{axis.toUpperCase()}</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={objectProperties.position[axis]}
+                            onChange={(e) => handlePropertyChange("position", axis, e.target.value)}
+                            disabled={!selectedObject}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label>Rotation</Label>
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">X</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.rotation.x}
-                          onChange={(e) => handlePropertyChange("rotation", "x", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Y</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.rotation.y}
-                          onChange={(e) => handlePropertyChange("rotation", "y", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Z</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.rotation.z}
-                          onChange={(e) => handlePropertyChange("rotation", "z", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
+                       {(["x", "y", "z"] as const).map((axis) => (
+                        <div className="space-y-1" key={axis}>
+                          <Label className="text-xs">{axis.toUpperCase()}</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            value={objectProperties.rotation[axis]} 
+                            onChange={(e) => handlePropertyChange("rotation", axis, e.target.value)}
+                            disabled={!selectedObject}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label>Scale</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">X</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.scale.x}
-                          onChange={(e) => handlePropertyChange("scale", "x", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Y</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.scale.y}
-                          onChange={(e) => handlePropertyChange("scale", "y", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Z</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.scale.z}
-                          onChange={(e) => handlePropertyChange("scale", "z", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
+                     <div className="grid grid-cols-3 gap-2">
+                       {(["x", "y", "z"] as const).map((axis) => (
+                        <div className="space-y-1" key={axis}>
+                          <Label className="text-xs">{axis.toUpperCase()}</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={objectProperties.scale[axis]}
+                            onChange={(e) => handlePropertyChange("scale", axis, e.target.value)}
+                            disabled={!selectedObject}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label>Dimensions</Label>
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Width</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.dimensions.width}
-                          onChange={(e) => handlePropertyChange("dimensions", "width", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Height</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.dimensions.height}
-                          onChange={(e) => handlePropertyChange("dimensions", "height", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Depth</Label>
-                        <Input
-                          type="number"
-                          value={objectProperties.dimensions.depth}
-                          onChange={(e) => handlePropertyChange("dimensions", "depth", e.target.value)}
-                          disabled={!selectedObject}
-                        />
-                      </div>
+                      {(["width", "height", "depth"] as const).map((dim) => (
+                        <div className="space-y-1" key={dim}>
+                          <Label className="text-xs">{dim.charAt(0).toUpperCase() + dim.slice(1)}</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={objectProperties.dimensions[dim]}
+                            onChange={(e) => handlePropertyChange("dimensions", dim, e.target.value)}
+                            disabled={!selectedObject || !objects.find(o=>o.id===selectedObject)?.type || !(["cube", "sphere", "cylinder", "cone", "plane", "gear", "hex"].includes(objects.find(o=>o.id===selectedObject)?.type || ""))}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Lock Aspect Ratio</Label>
-                      <Switch defaultChecked />
+                      <Switch disabled={!selectedObject} />
                     </div>
                   </div>
                 </TabsContent>
 
                 <TabsContent value="material" className="p-4 space-y-4">
-                  {/* Material tab content */}
-                </TabsContent>
-
-                <TabsContent value="decals" className="p-4 space-y-4">
-                  {/* Decals tab content */}
+                  <Label>Material Properties</Label>
+                  <p className="text-xs text-gray-500">Color, roughness, metalness, etc.</p>
                 </TabsContent>
               </ScrollArea>
             </Tabs>
