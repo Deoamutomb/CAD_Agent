@@ -133,6 +133,13 @@ export type SceneObject =
   | GearObject
   | HexObject;
 
+// Define type for display properties in the UI
+interface DisplayProperties {
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number }; // Degrees for UI
+  scale: { x: number; y: number; z: number };
+  dimensions: { width: number; height: number; depth: number }; // UI units
+}
 
 interface CameraModelProps {
   color?: string;
@@ -486,31 +493,32 @@ export function CadWorkspace() {
   const { toast } = useToast()
   const [aiChatMessages, setAiChatMessages] = useState<AiChatMessage[]>([])
 
-  const [gizmoTarget, setGizmoTarget] = useState<THREE.Object3D | null>(null);
-  const multiSelectGizmoProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
+  // Define a default cube
+  const defaultCube: CubeObject = {
+    id: `cube_initial_${Date.now()}`, // Unique ID for the initial cube
+    type: "cube",
+    position: [0, 0.5, 0], // Centered, slightly above grid
+    color: "#90cdf4", // A default color (e.g., light blue)
+    size: [1, 1, 1],
+    rotation: [0,0,0],
+    scale: [1,1,1]
+  };
 
-  // Refs for TransformControls interaction, defined in CadWorkspace
-  const transformDataRef = useRef<Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>> | null>(null);
-  const gizmoInitialTransformRef = useRef<THREE.Matrix4 | null>(null);
-  const initialObjectStatesOnDragStartRef = useRef<Record<string, BaseSceneObject> | null>(null);
+  // Core application state
+  const [objects, setObjects] = useState<SceneObject[]>([defaultCube]); // Initialize with default cube
+  const [history, setHistory] = useState<SceneObject[][]>([[defaultCube]]); // History starts with the scene having the default cube
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
 
-  const initialObjects: SceneObject[] = [
-    { id: "cube_1", type: "cube", position: [-3, 0.5, 0], size: [1, 1, 1], color: "#9ae6b4", rotation: [0,0,0], scale: [1,1,1] },
-    { id: "sphere_1", type: "sphere", position: [-3, 0.5, 2], radius: 0.5, color: "#90cdf4", rotation: [0,0,0], scale: [1,1,1] },
-    { id: "cylinder_1", type: "cylinder", position: [-1, 0.5, -3], args: [0.5, 0.5, 1, 32], color: "#f6ad55", rotation: [0,0,0], scale: [1,1,1] },
-    { id: "gear_1", type: "gear", position: [3, 0.5, -2], radius: 0.7, teeth: 10, color: "#fc8181", rotation: [0,0,0], scale: [1,1,1] },
-  ]
-  const [objects, setObjects] = useState<SceneObject[]>(initialObjects)
-
-  const [objectProperties, setObjectProperties] = useState({
+  const initialDisplayProperties: DisplayProperties = {
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
-    dimensions: { width: 10, height: 5, depth: 3 }, 
-  })
+    dimensions: { width: 10, height: 5, depth: 3 }, // Default placeholder values
+  };
+  const [objectProperties, setObjectProperties] = useState<DisplayProperties>(initialDisplayProperties);
 
-  const [history, setHistory] = useState<SceneObject[][]>([objects])
-  const [historyIndex, setHistoryIndex] = useState(0)
+  const [gizmoTarget, setGizmoTarget] = useState<THREE.Object3D | null>(null);
+  const multiSelectGizmoProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
 
   // State for AI assistant
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
@@ -1013,130 +1021,43 @@ export function CadWorkspace() {
     setAiPrompt("");
   };
 
-  // Transform Handlers defined in CadWorkspace
-  const handleTransformMouseDown = () => {
-    if (gizmoTarget) {
-      gizmoInitialTransformRef.current = gizmoTarget.matrixWorld.clone();
-
-      const initialStates: Record<string, BaseSceneObject> = {};
-      selectedObjects.forEach(id => {
-        const obj = objects.find(o => o.id === id);
-        if (obj) {
-          initialStates[id] = { ...obj };
-        }
-      });
-      initialObjectStatesOnDragStartRef.current = initialStates;
-      transformDataRef.current = {};
-    }
-  };
-
-  const handleTransformChange = (event?: THREE.Event) => { 
-    if (!gizmoTarget || !gizmoInitialTransformRef.current || !initialObjectStatesOnDragStartRef.current) return;
-    if (selectedObjects.length === 0) return; // Nothing selected, nothing to do
-    // Ensure initialObjectStatesOnDragStartRef.current is populated for selected objects, otherwise, something is wrong with onMouseDown
-    if (Object.keys(initialObjectStatesOnDragStartRef.current).length !== selectedObjects.length && selectedObjects.length > 0) {
-        console.error("Mismatch between selected objects and initial states cache. Aborting transform.");
-        return;
-    }
-
-    if (!transformDataRef.current) {
-      transformDataRef.current = {}; // Initialize if null, before any potential write access
-    }
-
-    // Single object selection: gizmoTarget is the object itself. Update its properties directly.
-    if (selectedObjects.length === 1 && gizmoTarget !== multiSelectGizmoProxyRef.current) {
-      const objectId = selectedObjects[0];
-      if (gizmoTarget) { // gizmoTarget is the THREE.Object3D
-        const { x: posX, y: posY, z: posZ } = gizmoTarget.position; // Local position from the object itself
-        const euler = gizmoTarget.rotation; // Local rotation (Euler) from the object itself
-        const { x: rotX, y: rotY, z: rotZ } = euler;
-        const { x: scaleX, y: scaleY, z: scaleZ } = gizmoTarget.scale; // Local scale from the object itself
-        
-        transformDataRef.current[objectId] = {
-          position: [posX, posY, posZ],
-          rotation: [rotX, rotY, rotZ],
-          scale: [scaleX, scaleY, scaleZ],
-        };
-      }
-    } else if (selectedObjects.length > 0) { // Multi-object OR single object transformed via proxy (matrix logic)
-      const currentGizmoWorldMatrix = gizmoTarget.matrixWorld.clone();
-      const initialGizmoWorldMatrix = gizmoInitialTransformRef.current; // This is a Matrix4
-      
-      // Check if initialGizmoWorldMatrix is null again, though caught by outer if, belt and braces
-      if (!initialGizmoWorldMatrix) return;
-
-      const initialGizmoWorldMatrix_inv = new THREE.Matrix4().copy(initialGizmoWorldMatrix).invert();
-      const deltaTransformMatrix = new THREE.Matrix4().multiplyMatrices(currentGizmoWorldMatrix, initialGizmoWorldMatrix_inv);
-
-      selectedObjects.forEach(id => {
-        const initialObjectState = initialObjectStatesOnDragStartRef.current![id];
-        if (!initialObjectState) {
-            console.warn(`No initial state found for object ${id} during transform.`);
-            return;
-        }
-
-        const posVec = new THREE.Vector3().fromArray(initialObjectState.position);
-        const rotArr = (initialObjectState.rotation || [0,0,0]) as [number,number,number];
-        const euler = new THREE.Euler(rotArr[0], rotArr[1], rotArr[2], 'XYZ');
-        const quat = new THREE.Quaternion().setFromEuler(euler);
-        const scaleVec = new THREE.Vector3().fromArray(initialObjectState.scale || [1,1,1]);
-        const initialObjectLocalMatrix = new THREE.Matrix4().compose(posVec, quat, scaleVec);
-
-        const newObjectWorldMatrix = new THREE.Matrix4().multiplyMatrices(deltaTransformMatrix, initialObjectLocalMatrix);
-
-        const newPositionVec = new THREE.Vector3();
-        const newQuaternion = new THREE.Quaternion();
-        const newScaleVec = new THREE.Vector3();
-        newObjectWorldMatrix.decompose(newPositionVec, newQuaternion, newScaleVec);
-
-        const newEuler = new THREE.Euler().setFromQuaternion(newQuaternion, 'XYZ');
-
-        transformDataRef.current![id] = {
-          position: newPositionVec.toArray(),
-          rotation: [newEuler.x, newEuler.y, newEuler.z],
-          scale: newScaleVec.toArray(),
-        };
-      });
-    }
-  };
-
-  const handleTransformEnd = () => {
-    if (selectedObjects.length > 0 && transformDataRef.current) {
-      const objectsToUpdate = Object.keys(transformDataRef.current);
-      if (objectsToUpdate.length > 0) {
-        handleObjectTransform(objectsToUpdate, transformDataRef.current);
-      }
-      transformDataRef.current = null; 
-      gizmoInitialTransformRef.current = null;
-    }
-  };
-
-  const transformControlsHandlers = {
-    onChange: handleTransformChange,
-    onMouseUp: handleTransformEnd,
-    onMouseDown: handleTransformMouseDown,
-  };
-
-  // Internal component to manage gizmo target using useThree
+  // Internal component to manage gizmo target AND TransformControls interaction
   const GizmoManager = ({ 
     selectedObjs, 
-    sceneObjs, 
+    cadObjectsData, 
     setGizmoTargetFn, 
-    gizmoProxyRef 
+    gizmoProxyRef, 
+    onTransformCommit,
+    currentTransformMode,
+    actualGizmoTargetForTC 
   }: { 
     selectedObjs: string[], 
-    sceneObjs: SceneObject[], 
+    cadObjectsData: SceneObject[], 
     setGizmoTargetFn: (target: THREE.Object3D | null) => void, 
-    gizmoProxyRef: React.MutableRefObject<THREE.Object3D> 
+    gizmoProxyRef: React.MutableRefObject<THREE.Object3D>,
+    onTransformCommit: (ids: string[], transforms: Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>>) => void,
+    currentTransformMode: "translate" | "rotate" | "scale";
+    actualGizmoTargetForTC: THREE.Object3D | null; 
   }) => {
     const { scene } = useThree();
 
-    useEffect(() => {
+    // Refs for TransformControls interaction, now local to GizmoManager
+    const transformDataRef = useRef<Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>> | null>(null);
+    const gizmoInitialTransformRef = useRef<THREE.Matrix4 | null>(null);
+    const initialObjectStatesOnDragStartRef = useRef<Record<string, BaseSceneObject> | null>(null);
+
+    useEffect(() => { // Effect to manage gizmo position and attachment (proxy vs direct object)
       if (!scene) return;
 
       if (selectedObjs.length === 1) {
         const mesh = scene.getObjectByName(selectedObjs[0]);
-        setGizmoTargetFn(mesh || null);
+        // MODIFICATION: Ensure mesh is valid and in scene graph before setting
+        if (mesh && mesh.parent) { 
+          setGizmoTargetFn(mesh);
+        } else {
+          setGizmoTargetFn(null); // Don't target if not found or parentless
+        }
+        // END MODIFICATION
         if (gizmoProxyRef.current.parent) {
           gizmoProxyRef.current.parent.remove(gizmoProxyRef.current);
         }
@@ -1149,7 +1070,7 @@ export function CadWorkspace() {
           const centroid = new THREE.Vector3();
           selectedMeshes.forEach(mesh => {
             const worldPosition = new THREE.Vector3();
-            mesh.getWorldPosition(worldPosition);
+            if(mesh.parent) mesh.getWorldPosition(worldPosition); else worldPosition.copy(mesh.position)
             centroid.add(worldPosition);
           });
           centroid.divideScalar(selectedMeshes.length);
@@ -1171,9 +1092,127 @@ export function CadWorkspace() {
           gizmoProxyRef.current.parent.remove(gizmoProxyRef.current);
         }
       }
-    }, [selectedObjs, sceneObjs, scene, setGizmoTargetFn, gizmoProxyRef]);
+    }, [selectedObjs, cadObjectsData, scene, setGizmoTargetFn, gizmoProxyRef]);
 
-    return null; // This component does not render anything itself
+    // Transform Handlers, now local to GizmoManager
+    const handleTransformMouseDown = () => {
+      const currentGizmo = selectedObjs.length === 1 && !selectedObjs.some(id => scene.getObjectByName(id) === gizmoProxyRef.current) 
+                           ? scene.getObjectByName(selectedObjs[0]) 
+                           : gizmoProxyRef.current;
+      if (currentGizmo) {
+        gizmoInitialTransformRef.current = currentGizmo.matrixWorld.clone();
+        const initialStates: Record<string, BaseSceneObject> = {};
+        selectedObjs.forEach(id => {
+          const obj = cadObjectsData.find(o => o.id === id);
+          if (obj) {
+            initialStates[id] = { ...obj }; 
+          }
+        });
+        initialObjectStatesOnDragStartRef.current = initialStates;
+        transformDataRef.current = {}; 
+      }
+    };
+
+    const handleTransformChange = () => { 
+      const currentGizmo = selectedObjs.length === 1 && !selectedObjs.some(id => scene.getObjectByName(id) === gizmoProxyRef.current) 
+                           ? scene.getObjectByName(selectedObjs[0]) 
+                           : gizmoProxyRef.current;
+
+      if (!currentGizmo || !gizmoInitialTransformRef.current || !initialObjectStatesOnDragStartRef.current) return;
+      if (selectedObjs.length === 0) return; 
+      if (Object.keys(initialObjectStatesOnDragStartRef.current).length !== selectedObjs.length && selectedObjs.length > 0) {
+          console.error("Mismatch between selected objects and initial states cache. Aborting transform.");
+          return;
+      }
+
+      if (!transformDataRef.current) {
+        transformDataRef.current = {}; 
+      }
+
+      let pendingTransformsForReactState: Record<string, Partial<Pick<BaseSceneObject, 'position' | 'rotation' | 'scale'>>> = {};
+
+      if (selectedObjs.length === 1 && currentGizmo !== gizmoProxyRef.current) {
+        const objectId = selectedObjs[0];
+        if (currentGizmo) { 
+          // Directly update THREE.Object3D for visual feedback
+          // currentGizmo.position, currentGizmo.rotation, currentGizmo.scale are already being updated by TransformControls
+          
+          // Prepare data for React state update on mouseUp
+          pendingTransformsForReactState[objectId] = {
+            position: [currentGizmo.position.x, currentGizmo.position.y, currentGizmo.position.z],
+            rotation: [currentGizmo.rotation.x, currentGizmo.rotation.y, currentGizmo.rotation.z],
+            scale: [currentGizmo.scale.x, currentGizmo.scale.y, currentGizmo.scale.z],
+          };
+        }
+      } else if (selectedObjs.length > 0) { 
+        const currentGizmoWorldMatrix = currentGizmo.matrixWorld.clone();
+        const initialGizmoWorldMatrix = gizmoInitialTransformRef.current; 
+        if (!initialGizmoWorldMatrix) return;
+
+        const initialGizmoWorldMatrix_inv = new THREE.Matrix4().copy(initialGizmoWorldMatrix).invert();
+        const deltaTransformMatrix = new THREE.Matrix4().multiplyMatrices(currentGizmoWorldMatrix, initialGizmoWorldMatrix_inv);
+
+        selectedObjs.forEach(id => {
+          const initialObjectState = initialObjectStatesOnDragStartRef.current![id];
+          if (!initialObjectState) {
+              console.warn(`No initial state found for object ${id} during transform.`);
+              return;
+          }
+
+          const posVec = new THREE.Vector3().fromArray(initialObjectState.position);
+          const rotArr = (initialObjectState.rotation || [0,0,0]) as [number,number,number];
+          const euler = new THREE.Euler(rotArr[0], rotArr[1], rotArr[2], 'XYZ');
+          const quat = new THREE.Quaternion().setFromEuler(euler);
+          const scaleVec = new THREE.Vector3().fromArray(initialObjectState.scale || [1,1,1]);
+          const initialObjectLocalMatrix = new THREE.Matrix4().compose(posVec, quat, scaleVec);
+          const newObjectWorldMatrix = new THREE.Matrix4().multiplyMatrices(deltaTransformMatrix, initialObjectLocalMatrix);
+          const newPositionVec = new THREE.Vector3();
+          const newQuaternion = new THREE.Quaternion();
+          const newScaleVec = new THREE.Vector3();
+          newObjectWorldMatrix.decompose(newPositionVec, newQuaternion, newScaleVec);
+          const newEuler = new THREE.Euler().setFromQuaternion(newQuaternion, 'XYZ');
+
+          // Directly update the THREE.Object3D in the scene for this object
+          const meshToUpdate = scene.getObjectByName(id);
+          if (meshToUpdate) {
+            meshToUpdate.position.copy(newPositionVec);
+            meshToUpdate.quaternion.copy(newQuaternion);
+            meshToUpdate.scale.copy(newScaleVec);
+          }
+          
+          // Store transforms for React state update on mouseUp
+          pendingTransformsForReactState[id] = {
+            position: newPositionVec.toArray(),
+            rotation: [newEuler.x, newEuler.y, newEuler.z],
+            scale: newScaleVec.toArray(),
+          };
+        });
+      }
+      transformDataRef.current = pendingTransformsForReactState; // Store the final state for React
+    };
+
+    const handleTransformEnd = () => {
+      if (transformDataRef.current && Object.keys(transformDataRef.current).length > 0) {
+        onTransformCommit(Object.keys(transformDataRef.current), transformDataRef.current);
+      }
+      transformDataRef.current = null; 
+      initialObjectStatesOnDragStartRef.current = null; 
+      gizmoInitialTransformRef.current = null;
+    };
+
+    return (
+      <>
+        {actualGizmoTargetForTC && selectedObjs.length > 0 && ( 
+          <TransformControls
+            object={actualGizmoTargetForTC}
+            mode={currentTransformMode}
+            onChange={handleTransformChange} 
+            onMouseUp={handleTransformEnd}
+            onMouseDown={handleTransformMouseDown}
+          />
+        )}
+      </>
+    );
   };
 
   return (
@@ -1450,13 +1489,16 @@ export function CadWorkspace() {
 
           <ContextMenu>
             <ContextMenuTrigger asChild className="w-full h-full">
-              <Canvas shadows>
+              <Canvas shadows camera={{ position: [7, 7, 7], fov: 50 }}>
                 <Suspense fallback={null}>
                   <GizmoManager 
                     selectedObjs={selectedObjects}
-                    sceneObjs={objects}
+                    cadObjectsData={objects}
                     setGizmoTargetFn={setGizmoTarget}
                     gizmoProxyRef={multiSelectGizmoProxyRef}
+                    onTransformCommit={handleObjectTransform}
+                    currentTransformMode={transformMode}
+                    actualGizmoTargetForTC={gizmoTarget}
                   />
                   <Scene
                     objects={objects}
@@ -1465,15 +1507,6 @@ export function CadWorkspace() {
                     onDeleteObject={handleDeleteObject}
                     onDuplicateObject={handleDuplicateObject}
                   />
-                  {gizmoTarget && selectedObjects.length > 0 && (
-                    <TransformControls
-                      object={gizmoTarget}
-                      mode={transformMode}
-                      onChange={transformControlsHandlers.onChange}
-                      onMouseUp={transformControlsHandlers.onMouseUp}
-                      onMouseDown={transformControlsHandlers.onMouseDown}
-                    />
-                  )}
                   <OrbitControls makeDefault />
                   <Environment preset="studio" />
                 </Suspense>
