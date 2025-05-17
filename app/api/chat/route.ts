@@ -59,16 +59,10 @@ export async function POST(req: NextRequest) {
       messages: messages,
       stream: true,
       tools: tools.map((tool) => ({
-        type: 'function',
-        function: {
-          name: tool.name,
-          description: tool.description || '',
-          parameters: {
-            type: 'object',
-            properties: tool.inputSchema.properties,
-            required: tool.inputSchema.required
-          }
-        }
+        type: 'custom',
+        name: tool.name,
+        description: tool.description || '',
+        input_schema: tool.inputSchema
       })) as any[]
     });
 
@@ -83,32 +77,6 @@ export async function POST(req: NextRequest) {
             if (chunk.type === 'content_block_delta' && 'text' in chunk.delta) {
               const text = chunk.delta.text;
               controller.enqueue(encoder.encode(text));
-            // } else if (chunk.type === 'tool_call') {
-            //   // Handle tool calls
-            //   const toolCall = chunk.tool_calls[0];
-            //   const result = await mcpClient.callTool({
-            //     name: toolCall.name,
-            //     arguments: toolCall.parameters
-            //   });
-              
-            //   // Send tool result back to Claude
-            //   const toolResponse = await anthropic.messages.create({
-            //     model: 'claude-3-7-sonnet-latest',
-            //     max_tokens: 1000,
-            //     messages: [
-            //       ...messages,
-            //       { role: 'assistant', content: '', tool_calls: [toolCall] },
-            //       { role: 'tool', content: JSON.stringify(result), tool_call_id: toolCall.id }
-            //     ],
-            //     stream: true
-            //   });
-
-            //   // Stream the response from Claude after tool call
-            //   for await (const responseChunk of toolResponse) {
-            //     if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
-            //       controller.enqueue(encoder.encode(responseChunk.delta.text));
-            //     }
-            //   }
             }
           }
           controller.close();
