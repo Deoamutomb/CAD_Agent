@@ -74,13 +74,50 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         try {
           for await (const chunk of stream) {
+            console.log('Chunk:', JSON.stringify(chunk, null, 2));
+            console.log("\n\n")
             if (chunk.type === 'content_block_delta' && 'text' in chunk.delta) {
               const text = chunk.delta.text;
               controller.enqueue(encoder.encode(text));
+            } else if (chunk.type === 'message_delta' && 'tool_calls' in chunk.delta) {
+              // Handle tool calls
+              const toolCalls = chunk.delta.tool_calls as Array<{
+                id: string;
+                name: string;
+                parameters: Record<string, unknown>;
+              }>;
+              const toolCall = toolCalls[0];
+              console.log('Tool call:', JSON.stringify(toolCall, null, 2));
+              
+              const result = await mcpClient.callTool({
+                name: toolCall.name,
+                arguments: toolCall.parameters
+              });
+              console.log('Tool result:', JSON.stringify(result, null, 2));
+              
+              // Send tool result back to Claude
+              const toolResponse = await anthropic.messages.create({
+                model: 'claude-3-7-sonnet-latest',
+                max_tokens: 1000,
+                messages: [
+                  ...messages,
+                  { role: 'assistant', content: '', tool_calls: [toolCall] },
+                  { role: 'tool', content: JSON.stringify(result), tool_call_id: toolCall.id }
+                ],
+                stream: true
+              });
+
+              // Stream the response from Claude after tool call
+              for await (const responseChunk of toolResponse) {
+                if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
+                  controller.enqueue(encoder.encode(responseChunk.delta.text));
+                }
+              }
             }
           }
           controller.close();
         } catch (error) {
+          console.error('Error in stream:', error);
           controller.error(error);
         }
       },
