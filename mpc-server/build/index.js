@@ -1,20 +1,20 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StlProcessor } from "./stl-processor.js";
+import { ObjProcessor } from "./obj-processor.js";
 import { z } from "zod";
 // Create an MCP server
 const server = new McpServer({
-    name: "stl-processor-server",
+    name: "obj-processor-server",
     version: "1.0.0",
-    description: "MCP server for processing STL files in industrial design"
+    description: "MCP server for processing OBJ files in industrial design"
 });
-// Initialize STL processor
-const stlProcessor = new StlProcessor({
-    basePath: "s3://alyshahudson-stl-files"
+// Initialize OBJ processor
+const objProcessor = new ObjProcessor({
+    basePath: "s3://alyshahudson-obj-files"
 });
-// // Register resources
-server.resource("stl-model-list", new ResourceTemplate("stl-model-list:/", { list: undefined }), async (uri) => {
-    const models = await stlProcessor.listModels();
+// Register resources
+server.resource("obj-model-list", new ResourceTemplate("obj-model-list:/", { list: undefined }), async (uri) => {
+    const models = await objProcessor.listModels();
     return {
         contents: [
             {
@@ -24,9 +24,9 @@ server.resource("stl-model-list", new ResourceTemplate("stl-model-list:/", { lis
         ]
     };
 });
-server.resource("stl-model", new ResourceTemplate("stl-model://{model_id}", { list: undefined }), async (uri) => {
+server.resource("obj-model", new ResourceTemplate("obj-model://{model_id}", { list: undefined }), async (uri) => {
     const modelId = uri.pathname.split('/').pop() || '';
-    const model = await stlProcessor.loadModel(modelId, `${modelId}.stl`);
+    const model = await objProcessor.loadModel(modelId, `${modelId}.obj`);
     return {
         contents: [
             {
@@ -36,9 +36,9 @@ server.resource("stl-model", new ResourceTemplate("stl-model://{model_id}", { li
         ]
     };
 });
-server.resource("stl-model-metadata", new ResourceTemplate("stl-model-metadata://{model_id}", { list: undefined }), async (uri) => {
+server.resource("obj-model-metadata", new ResourceTemplate("obj-model-metadata://{model_id}", { list: undefined }), async (uri) => {
     const modelId = uri.pathname.split('/').pop() || '';
-    const analysis = await stlProcessor.analyzeModel(modelId);
+    const analysis = await objProcessor.analyzeModel(modelId);
     return {
         contents: [
             {
@@ -48,43 +48,30 @@ server.resource("stl-model-metadata", new ResourceTemplate("stl-model-metadata:/
         ]
     };
 });
-// // Register tools
-server.tool("analyze_stl", { model_id: z.string().describe("ID of the STL model to analyze") }, async ({ model_id }) => {
-    const analysis = await stlProcessor.analyzeModel(model_id);
+// Register tools
+server.tool("analyze_obj", { model_id: z.string().describe("ID of the OBJ model to analyze") }, async ({ model_id }) => {
+    const analysis = await objProcessor.analyzeModel(model_id);
     return {
         content: [{ type: "text", text: JSON.stringify(analysis) }]
     };
 });
-// 
-server.tool("get_all_stl_models", {}, async () => {
-    const models = await stlProcessor.listModels();
-    return {
-        content: [{ type: "text", text: JSON.stringify(models) }]
-    };
-});
-server.tool("modify_stl", {
-    model_id: z.string().describe("ID of the STL model to modify"),
+server.tool("modify_obj", {
+    model_id: z.string().describe("ID of the OBJ model to modify"),
     scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
     rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
     translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
 }, async ({ model_id, scale, rotate, translate }) => {
-    const modifiedModel = await stlProcessor.modifyModel(model_id, { scale, rotate, translate });
+    const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
     return {
         content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
     };
 });
 // Start the server
 async function main() {
-    // console.log("Starting STL Processor MCP Server");
-    // console.log("Starting Weather MCP Server");
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    // console.error("Weather MCP Server running on stdio");
 }
-main().catch((error) => {
-    console.error("Fatal error in main():", error);
-    process.exit(1);
-});
+main().catch(console.error);
 // This is just an example file showing how to create a weather service using the MCP SDK
 // import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 // import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
