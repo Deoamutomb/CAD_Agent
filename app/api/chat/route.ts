@@ -123,17 +123,39 @@ export async function POST(req: NextRequest) {
                 });
                 console.log('Tool result:', JSON.stringify(result, null, 2));
                 
-                // Send tool result back to Claude
-                const toolResponse = await anthropic.messages.create({
+                // Format the tool result into a readable string
+                let formattedResult = '';
+                if (typeof result === 'object') {
+                  if (currentToolCall.name === 'get_alerts') {
+                    formattedResult = `Weather alerts for ${parameters.state}:\n${JSON.stringify(result, null, 2)}`;
+                  } else if (currentToolCall.name === 'get_forecast') {
+                    formattedResult = `Weather forecast for coordinates (${parameters.latitude}, ${parameters.longitude}):\n${JSON.stringify(result, null, 2)}`;
+                  } else {
+                    formattedResult = JSON.stringify(result, null, 2);
+                  }
+                } else {
+                  formattedResult = String(result);
+                }
+
+                const finalCompletionInput = {
                   model: 'claude-3-7-sonnet-latest',
                   max_tokens: 1000,
                   messages: [
                     ...messages,
-                    { role: 'assistant', content: '', tool_calls: [currentToolCall] },
-                    { role: 'user', content: JSON.stringify(result), tool_call_id: currentToolCall.id }
+                    { 
+                      role: 'user', 
+                      content: `${formattedResult}`, 
+                    }
                   ],
                   stream: true
-                });
+                }
+
+                console.log('Final completion input:', JSON.stringify(finalCompletionInput, null, 2));
+
+                // Send tool result back to Claude
+                const toolResponse = await anthropic.messages.create(finalCompletionInput);
+
+                console.log('Final completion response:', toolResponse);
 
                 // Stream the response from Claude after tool call
                 for await (const responseChunk of toolResponse) {
