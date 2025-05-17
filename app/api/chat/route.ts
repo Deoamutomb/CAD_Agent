@@ -1,0 +1,199 @@
+import { Anthropic } from '@anthropic-ai/sdk';
+import type { MessageCreateParams } from '@anthropic-ai/sdk/resources/messages';
+import { NextRequest } from 'next/server';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+type Tool = {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+};
+
+type AnthropicTool = {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+// Initialize the Anthropic client
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// Singleton for MCP client and tools
+let mcpClientInstance: Client | null = null;
+let toolsCache: any[] = [];  // Initialize as empty array instead of null
+
+async function getMCPClient() {
+  if (!mcpClientInstance) {
+    const weatherServer = new StdioClientTransport({
+      command: "uv",
+      args: [
+        "--directory",
+        "/Users/douglasqian/weather",
+        "run",
+        "weather.py"
+      ]
+    });
+
+    mcpClientInstance = new Client({
+      name: "cad-agent-mcp-client",
+      version: "1.0.0"
+    });
+
+    try {
+      await mcpClientInstance.connect(weatherServer);
+      const toolsResponse = await mcpClientInstance.listTools();
+      toolsCache = toolsResponse?.tools || [];
+      console.log('MCP Tools initialized:', JSON.stringify(toolsCache, null, 2));
+    } catch (error) {
+      console.error('Error initializing MCP client:', error);
+      toolsCache = [];
+    }
+  }
+  return { client: mcpClientInstance, tools: toolsCache };
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { messages } = await req.json();
+
+    // Get MCP client and tools from singleton
+    const { client: mcpClient, tools } = await getMCPClient();
+    console.log('Using cached tools:', JSON.stringify(tools, null, 2));
+
+    // Create a streaming response with tools
+    const stream = await anthropic.messages.create({
+      model: 'claude-3-7-sonnet-latest',
+      max_tokens: 1000,
+      messages: messages,
+      stream: true,
+      tools: tools.map((tool) => ({
+        type: 'custom',
+        name: tool.name,
+        description: tool.description || '',
+        input_schema: tool.inputSchema
+      })) as any[]
+    });
+
+    // Create a TransformStream to handle the streaming response
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    const customReadable = new ReadableStream({
+      async start(controller) {
+        try {
+          let currentToolCall: {
+            id: string;
+            name: string;
+            parameters: Record<string, unknown>;
+          } | null = null;
+          let currentJsonInput = '';
+
+          for await (const chunk of stream) {
+            console.log('Chunk:', JSON.stringify(chunk, null, 2));
+            console.log("\n\n");
+
+            if (chunk.type === 'content_block_delta' && 'text' in chunk.delta) {
+              const text = chunk.delta.text;
+              controller.enqueue(encoder.encode(text));
+            } else if (chunk.type === 'content_block_start' && chunk.content_block.type === 'tool_use') {
+              // Start of a tool call
+              currentToolCall = {
+                id: chunk.content_block.id,
+                name: chunk.content_block.name,
+                parameters: {}
+              };
+            } else if (chunk.type === 'content_block_delta' && chunk.delta.type === 'input_json_delta') {
+              // Accumulate JSON input
+              currentJsonInput += chunk.delta.partial_json;
+            } else if (chunk.type === 'content_block_stop' && currentToolCall) {
+              // End of tool call, parse the complete JSON and execute the tool
+              try {
+                const parameters = JSON.parse(currentJsonInput);
+                console.log('Tool call:', JSON.stringify({ ...currentToolCall, parameters }, null, 2));
+                
+                const result = await mcpClient.callTool({
+                  name: currentToolCall.name,
+                  arguments: parameters
+                });
+                console.log('Tool result:', JSON.stringify(result, null, 2));
+                
+                // Format the tool result into a readable string
+                let formattedResult = '';
+                if (typeof result === 'object') {
+                  if (currentToolCall.name === 'get_alerts') {
+                    formattedResult = `Weather alerts for ${parameters.state}:\n${JSON.stringify(result, null, 2)}`;
+                  } else if (currentToolCall.name === 'get_forecast') {
+                    formattedResult = `Weather forecast for coordinates (${parameters.latitude}, ${parameters.longitude}):\n${JSON.stringify(result, null, 2)}`;
+                  } else {
+                    formattedResult = JSON.stringify(result, null, 2);
+                  }
+                } else {
+                  formattedResult = String(result);
+                }
+
+                const finalCompletionInput = {
+                  model: 'claude-3-7-sonnet-latest',
+                  max_tokens: 1000,
+                  messages: [
+                    ...messages,
+                    { 
+                      role: 'user', 
+                      content: `${formattedResult}`, 
+                    }
+                  ],
+                  stream: true
+                }
+
+                console.log('Final completion input:', JSON.stringify(finalCompletionInput, null, 2));
+
+                // Send tool result back to Claude
+                const toolResponse = await anthropic.messages.create(finalCompletionInput);
+
+                console.log('Final completion response:', toolResponse);
+
+                // Stream the response from Claude after tool call
+                for await (const responseChunk of toolResponse) {
+                  if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
+                    controller.enqueue(encoder.encode(responseChunk.delta.text));
+                  }
+                }
+
+                // Reset for next tool call
+                currentToolCall = null;
+                currentJsonInput = '';
+              } catch (error) {
+                console.error('Error processing tool call:', error);
+                controller.error(error);
+              }
+            }
+          }
+          controller.close();
+        } catch (error) {
+          console.error('Error in stream:', error);
+          controller.error(error);
+        }
+      },
+    });
+
+    return new Response(customReadable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+      },
+    });
+  } catch (error) {
+    console.error('Error in chat endpoint:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+} 
