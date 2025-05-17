@@ -19,6 +19,7 @@ export function Cube({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
@@ -57,6 +58,7 @@ export function Sphere({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
@@ -95,6 +97,7 @@ export function Cylinder({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
@@ -133,6 +136,7 @@ export function Cone({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
@@ -171,6 +175,7 @@ export function Plane({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       rotation={[-Math.PI / 2, 0, 0]}
       onClick={(e) => {
@@ -211,6 +216,7 @@ export function Gear({
 
   return (
     <group
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
@@ -279,6 +285,7 @@ export function Hex({
   return (
     <mesh
       ref={mesh}
+      name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
