@@ -1,10 +1,23 @@
 "use client"
 
-import { useRef } from "react"
+import { useRef, MouseEvent as ReactMouseEvent } from "react"
 import * as THREE from "three"
 import { Html } from "@react-three/drei"
 
-// Basic primitives
+// Define common prop types
+interface PrimitiveBaseProps {
+  position?: [number, number, number];
+  color?: string;
+  selected?: boolean;
+  onSelect: (id: string) => void;
+  onContextMenu: (event: ReactMouseEvent, id: string) => void;
+  id: string;
+}
+
+interface CubeProps extends PrimitiveBaseProps {
+  size?: [number, number, number];
+}
+
 export function Cube({
   position = [0, 0, 0],
   size = [1, 1, 1],
@@ -13,8 +26,8 @@ export function Cube({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: CubeProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -25,23 +38,30 @@ export function Cube({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       castShadow
       receiveShadow
     >
-      <boxGeometry args={size} />
+      <boxGeometry args={size as [number, number, number]} />
       <meshStandardMaterial
         color={color}
         emissive={selected ? "#ffffff" : "#000000"}
         emissiveIntensity={selected ? 0.1 : 0}
       />
       {selected && (
-        <Html position={[0, size[1] / 2 + 0.3, 0]}>
+        <Html position={[0, (size ? size[1] : 1) / 2 + 0.3, 0]}>
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded whitespace-nowrap">Cube</div>
         </Html>
       )}
     </mesh>
   )
+}
+
+interface SphereProps extends PrimitiveBaseProps {
+  radius?: number;
 }
 
 export function Sphere({
@@ -52,8 +72,8 @@ export function Sphere({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: SphereProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -64,7 +84,10 @@ export function Sphere({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       castShadow
       receiveShadow
     >
@@ -83,6 +106,10 @@ export function Sphere({
   )
 }
 
+interface CylinderProps extends PrimitiveBaseProps {
+  args?: [number, number, number, number]; // [radiusTop, radiusBottom, height, radialSegments]
+}
+
 export function Cylinder({
   position = [0, 0, 0],
   args = [0.5, 0.5, 1, 32],
@@ -91,8 +118,8 @@ export function Cylinder({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: CylinderProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -103,23 +130,30 @@ export function Cylinder({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       castShadow
       receiveShadow
     >
-      <cylinderGeometry args={args} />
+      <cylinderGeometry args={args as [number, number, number, number]} />
       <meshStandardMaterial
         color={color}
         emissive={selected ? "#ffffff" : "#000000"}
         emissiveIntensity={selected ? 0.1 : 0}
       />
       {selected && (
-        <Html position={[0, args[2] / 2 + 0.3, 0]}>
+        <Html position={[0, (args ? args[2] : 1) / 2 + 0.3, 0]}>
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded whitespace-nowrap">Cylinder</div>
         </Html>
       )}
     </mesh>
   )
+}
+
+interface ConeProps extends PrimitiveBaseProps {
+  args?: [number, number, number]; // [radius, height, radialSegments]
 }
 
 export function Cone({
@@ -130,8 +164,8 @@ export function Cone({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: ConeProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -142,23 +176,30 @@ export function Cone({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       castShadow
       receiveShadow
     >
-      <coneGeometry args={args} />
+      <coneGeometry args={args as [number, number, number]} />
       <meshStandardMaterial
         color={color}
         emissive={selected ? "#ffffff" : "#000000"}
         emissiveIntensity={selected ? 0.1 : 0}
       />
       {selected && (
-        <Html position={[0, args[1] / 2 + 0.3, 0]}>
+        <Html position={[0, (args ? args[1] : 1) / 2 + 0.3, 0]}>
           <div className="bg-black/70 text-white text-xs px-2 py-1 rounded whitespace-nowrap">Cone</div>
         </Html>
       )}
     </mesh>
   )
+}
+
+interface PlaneProps extends PrimitiveBaseProps {
+  size?: [number, number];
 }
 
 export function Plane({
@@ -169,8 +210,8 @@ export function Plane({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: PlaneProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -182,10 +223,13 @@ export function Plane({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       receiveShadow
     >
-      <planeGeometry args={[...size, 1, 1]} />
+      <planeGeometry args={[...(size || [1, 1]), 1, 1]} />
       <meshStandardMaterial
         color={color}
         emissive={selected ? "#ffffff" : "#000000"}
@@ -202,6 +246,11 @@ export function Plane({
 }
 
 // Mechanical primitives
+interface GearProps extends PrimitiveBaseProps {
+  radius?: number;
+  teeth?: number;
+}
+
 export function Gear({
   position = [0, 0, 0],
   radius = 0.5,
@@ -211,21 +260,25 @@ export function Gear({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: GearProps) {
+  const group = useRef<THREE.Group>(null!)
 
   return (
     <group
+      ref={group}
       name={id}
       position={position}
       onClick={(e) => {
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
     >
       {/* Base cylinder */}
-      <mesh ref={mesh} castShadow receiveShadow>
+      <mesh castShadow receiveShadow>
         <cylinderGeometry args={[radius, radius, 0.2, 32]} />
         <meshStandardMaterial
           color={color}
@@ -270,6 +323,11 @@ export function Gear({
   )
 }
 
+interface HexProps extends PrimitiveBaseProps {
+  radius?: number;
+  height?: number;
+}
+
 export function Hex({
   position = [0, 0, 0],
   radius = 0.5,
@@ -279,8 +337,8 @@ export function Hex({
   onSelect,
   onContextMenu,
   id,
-}) {
-  const mesh = useRef()
+}: HexProps) {
+  const mesh = useRef<THREE.Mesh>(null!)
 
   return (
     <mesh
@@ -291,7 +349,10 @@ export function Hex({
         e.stopPropagation()
         onSelect(id)
       }}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onContextMenu(e as unknown as ReactMouseEvent, id);
+      }}
       castShadow
       receiveShadow
     >
