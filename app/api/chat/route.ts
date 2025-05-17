@@ -24,33 +24,47 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Initialize MCP client
-const weatherServer = new StdioClientTransport({
-  command: "uv",
-  args: [
-    "--directory",
-    "/Users/douglasqian/weather",
-    "run",
-    "weather.py"
-  ]
-});
+// Singleton for MCP client and tools
+let mcpClientInstance: Client | null = null;
+let toolsCache: any[] = [];  // Initialize as empty array instead of null
 
-const mcpClient = new Client({
-  name: "cad-agent-mcp-client",
-  version: "1.0.0"
-});
+async function getMCPClient() {
+  if (!mcpClientInstance) {
+    const weatherServer = new StdioClientTransport({
+      command: "uv",
+      args: [
+        "--directory",
+        "/Users/douglasqian/weather",
+        "run",
+        "weather.py"
+      ]
+    });
+
+    mcpClientInstance = new Client({
+      name: "cad-agent-mcp-client",
+      version: "1.0.0"
+    });
+
+    try {
+      await mcpClientInstance.connect(weatherServer);
+      const toolsResponse = await mcpClientInstance.listTools();
+      toolsCache = toolsResponse?.tools || [];
+      console.log('MCP Tools initialized:', JSON.stringify(toolsCache, null, 2));
+    } catch (error) {
+      console.error('Error initializing MCP client:', error);
+      toolsCache = [];
+    }
+  }
+  return { client: mcpClientInstance, tools: toolsCache };
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { messages } = await req.json();
 
-    // Connect to MCP server and get tools
-    await mcpClient.connect(weatherServer);
-    const toolsResponse = await mcpClient.listTools();
-    console.log('MCP Tools Response:', JSON.stringify(toolsResponse, null, 2));
-    
-    const tools = toolsResponse?.tools || [];
-    console.log('Processed Tools:', JSON.stringify(tools, null, 2));
+    // Get MCP client and tools from singleton
+    const { client: mcpClient, tools } = await getMCPClient();
+    console.log('Using cached tools:', JSON.stringify(tools, null, 2));
 
     // Create a streaming response with tools
     const stream = await anthropic.messages.create({
@@ -73,45 +87,67 @@ export async function POST(req: NextRequest) {
     const customReadable = new ReadableStream({
       async start(controller) {
         try {
+          let currentToolCall: {
+            id: string;
+            name: string;
+            parameters: Record<string, unknown>;
+          } | null = null;
+          let currentJsonInput = '';
+
           for await (const chunk of stream) {
             console.log('Chunk:', JSON.stringify(chunk, null, 2));
-            console.log("\n\n")
+            console.log("\n\n");
+
             if (chunk.type === 'content_block_delta' && 'text' in chunk.delta) {
               const text = chunk.delta.text;
               controller.enqueue(encoder.encode(text));
-            } else if (chunk.type === 'message_delta' && 'tool_calls' in chunk.delta) {
-              // Handle tool calls
-              const toolCalls = chunk.delta.tool_calls as Array<{
-                id: string;
-                name: string;
-                parameters: Record<string, unknown>;
-              }>;
-              const toolCall = toolCalls[0];
-              console.log('Tool call:', JSON.stringify(toolCall, null, 2));
-              
-              const result = await mcpClient.callTool({
-                name: toolCall.name,
-                arguments: toolCall.parameters
-              });
-              console.log('Tool result:', JSON.stringify(result, null, 2));
-              
-              // Send tool result back to Claude
-              const toolResponse = await anthropic.messages.create({
-                model: 'claude-3-7-sonnet-latest',
-                max_tokens: 1000,
-                messages: [
-                  ...messages,
-                  { role: 'assistant', content: '', tool_calls: [toolCall] },
-                  { role: 'tool', content: JSON.stringify(result), tool_call_id: toolCall.id }
-                ],
-                stream: true
-              });
+            } else if (chunk.type === 'content_block_start' && chunk.content_block.type === 'tool_use') {
+              // Start of a tool call
+              currentToolCall = {
+                id: chunk.content_block.id,
+                name: chunk.content_block.name,
+                parameters: {}
+              };
+            } else if (chunk.type === 'content_block_delta' && chunk.delta.type === 'input_json_delta') {
+              // Accumulate JSON input
+              currentJsonInput += chunk.delta.partial_json;
+            } else if (chunk.type === 'content_block_stop' && currentToolCall) {
+              // End of tool call, parse the complete JSON and execute the tool
+              try {
+                const parameters = JSON.parse(currentJsonInput);
+                console.log('Tool call:', JSON.stringify({ ...currentToolCall, parameters }, null, 2));
+                
+                const result = await mcpClient.callTool({
+                  name: currentToolCall.name,
+                  arguments: parameters
+                });
+                console.log('Tool result:', JSON.stringify(result, null, 2));
+                
+                // Send tool result back to Claude
+                const toolResponse = await anthropic.messages.create({
+                  model: 'claude-3-7-sonnet-latest',
+                  max_tokens: 1000,
+                  messages: [
+                    ...messages,
+                    { role: 'assistant', content: '', tool_calls: [currentToolCall] },
+                    { role: 'user', content: JSON.stringify(result), tool_call_id: currentToolCall.id }
+                  ],
+                  stream: true
+                });
 
-              // Stream the response from Claude after tool call
-              for await (const responseChunk of toolResponse) {
-                if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
-                  controller.enqueue(encoder.encode(responseChunk.delta.text));
+                // Stream the response from Claude after tool call
+                for await (const responseChunk of toolResponse) {
+                  if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
+                    controller.enqueue(encoder.encode(responseChunk.delta.text));
+                  }
                 }
+
+                // Reset for next tool call
+                currentToolCall = null;
+                currentJsonInput = '';
+              } catch (error) {
+                console.error('Error processing tool call:', error);
+                controller.error(error);
               }
             }
           }
