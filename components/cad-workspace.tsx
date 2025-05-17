@@ -583,7 +583,18 @@ export function CadWorkspace() {
         dimensions: { width: 10, height: 5, depth: 3 },
       });
     }
-  }, [selectedObjects, objects])
+  }, [selectedObjects, objects, setObjectProperties])
+
+  // Handle clearing messages
+  const handleClearMessages = () => {
+    setMessages([])
+  }
+
+  // Generate a random color
+  const getRandomColor = () => {
+    const colors = ["#9ae6b4", "#90cdf4", "#f6ad55", "#fc8181", "#b19cd9", "#fbd38d"]
+    return colors[Math.floor(Math.random() * colors.length)]
+  }
 
   const handleAddPrimitive = useCallback(
     (primitiveType: PrimitiveType) => {
@@ -640,13 +651,13 @@ export function CadWorkspace() {
         description: `Added ${primitiveType} to the scene`,
       })
     },
-    [objects, history, historyIndex, toast, setSelectedObjectsState],
+    [objects, history, historyIndex, toast, setSelectedObjectsState, setObjects, setHistory, setHistoryIndex, getRandomColor],
   )
 
   const handleDeleteObject = useCallback((objectId: string) => {
     setObjectToDelete(objectId)
     setShowDeleteDialog(true)
-  }, [])
+  }, [setObjectToDelete, setShowDeleteDialog])
 
   const confirmDeleteObject = useCallback(() => {
     if (objectToDelete) {
@@ -666,7 +677,7 @@ export function CadWorkspace() {
       setShowDeleteDialog(false)
       setObjectToDelete(null)
     }
-  }, [objectToDelete, objects, history, historyIndex, selectedObjects, toast, setSelectedObjectsState])
+  }, [objectToDelete, objects, history, historyIndex, selectedObjects, toast, setSelectedObjectsState, setObjects, setHistory, setHistoryIndex])
 
   const handleDuplicateObject = useCallback(
     (objectId: string) => {
@@ -695,7 +706,7 @@ export function CadWorkspace() {
         })
       }
     },
-    [objects, history, historyIndex, toast, setSelectedObjectsState],
+    [objects, history, historyIndex, toast, setSelectedObjectsState, setObjects, setHistory, setHistoryIndex],
   )
 
   const handleObjectTransform = useCallback(
@@ -721,7 +732,7 @@ export function CadWorkspace() {
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
     },
-    [objects, history, historyIndex], 
+    [objects, history, historyIndex, setObjects, setHistory, setHistoryIndex], 
   );
 
   const handlePropertyChange = useCallback(
@@ -812,7 +823,7 @@ export function CadWorkspace() {
         return currentHistory;
       });
     },
-    [selectedObjects, objects, history, historyIndex], 
+    [selectedObjects, objects, history, historyIndex, setObjects, setHistory, setHistoryIndex], 
   )
 
   const handleUndo = useCallback(() => {
@@ -821,7 +832,7 @@ export function CadWorkspace() {
       setHistoryIndex(newHistoryIndex);
       setObjects(history[newHistoryIndex]); 
     }
-  }, [history, historyIndex])
+  }, [history, historyIndex, setObjects, setHistoryIndex])
 
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
@@ -829,12 +840,7 @@ export function CadWorkspace() {
       setHistoryIndex(newHistoryIndex);
       setObjects(history[newHistoryIndex]);
     }
-  }, [history, historyIndex])
-
-  // Handle clearing messages
-  const handleClearMessages = () => {
-    setMessages([])
-  }
+  }, [history, historyIndex, setObjects, setHistoryIndex])
 
   // Handle AI assistant submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -991,12 +997,6 @@ export function CadWorkspace() {
     }
   }
 
-  // Generate a random color
-  const getRandomColor = () => {
-    const colors = ["#9ae6b4", "#90cdf4", "#f6ad55", "#fc8181", "#b19cd9", "#fbd38d"]
-    return colors[Math.floor(Math.random() * colors.length)]
-  }
-  
   const handleAiSubmit = () => {
     if (!aiPrompt.trim()) return;
     const userMessage: AiChatMessage = {
@@ -1020,6 +1020,30 @@ export function CadWorkspace() {
 
     setAiPrompt("");
   };
+
+  // Effect for global keyboard shortcuts - MOVED HERE, AFTER ALL DEPENDENCIES ARE DEFINED
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Prevent interference if an input field is focused
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (event.key === ' ' || event.code === 'Space') { // Space key for deselect
+        event.preventDefault(); // Prevent default space bar scroll
+        setSelectedObjects([]);
+      } else if (event.key === 'Backspace' || event.key === 'Delete') { // Backspace or Delete key
+        if (selectedObjects.length > 0) {
+          selectedObjects.forEach(id => handleDeleteObject(id));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedObjects, handleDeleteObject, setSelectedObjects]);
 
   // Internal component to manage gizmo target AND TransformControls interaction
   const GizmoManager = ({ 
@@ -1489,7 +1513,16 @@ export function CadWorkspace() {
 
           <ContextMenu>
             <ContextMenuTrigger asChild className="w-full h-full">
-              <Canvas shadows camera={{ position: [7, 7, 7], fov: 50 }}>
+              <Canvas 
+                shadows 
+                camera={{ position: [7, 7, 7], fov: 50 }} 
+                onPointerMissed={(event) => {
+                  // Only deselect if the click was directly on the canvas (not on a gizmo or other HTML element)
+                  if (event.target === event.currentTarget) {
+                    setSelectedObjects([]);
+                  }
+                }}
+              >
                 <Suspense fallback={null}>
                   <GizmoManager 
                     selectedObjs={selectedObjects}
