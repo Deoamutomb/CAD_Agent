@@ -28,6 +28,7 @@ import {
   CheckSquare,
   Search,
   Plus,
+  Trash2,
 } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -830,6 +831,11 @@ export function CadWorkspace() {
     }
   }, [history, historyIndex])
 
+  // Handle clearing messages
+  const handleClearMessages = () => {
+    setMessages([])
+  }
+
   // Handle AI assistant submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1198,9 +1204,14 @@ export function CadWorkspace() {
                   <Wand2 className="h-4 w-4 mr-2" />
                   AI Assistant
                 </h3>
-                <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(false)} className="h-6 w-6">
-                  <EyeOff className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center space-x-2">
+                  <Button variant="ghost" size="icon" onClick={handleClearMessages}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(false)}>
+                    <EyeOff className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               <ScrollArea className="flex-1 min-h-[200px] max-h-[300px] mb-2 overflow-y-auto">
