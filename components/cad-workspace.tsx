@@ -853,7 +853,16 @@ export function CadWorkspace() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: [...messages, userMessage]
+          messages: [...messages, userMessage],
+          state: {
+            objects,
+            history,
+            historyIndex,
+            selectedObject,
+            showLeftPanel,
+            showAiPanel,
+            selectedModel
+          }
         })
       })
 

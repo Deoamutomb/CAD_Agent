@@ -80,18 +80,54 @@ server.tool(
   }
 );
 
+// server.tool(
+//   "modify_stl",
+//   {
+//     model_id: z.string().describe("ID of the STL model to modify"),
+//     scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
+//     rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
+//     translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
+//   },
+//   async ({ model_id, scale, rotate, translate }) => {
+//     const modifiedModel = await stlProcessor.modifyModel(model_id, { scale, rotate, translate });
+//     return {
+//       content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
+//     };
+//   }
+// );
+
 server.tool(
-  "modify_obj",
+  "reposition-objects",
+  "Update position of objects in a 3D scene.",
   {
-    model_id: z.string().describe("ID of the OBJ model to modify"),
-    scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
-    rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
-    translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
+    objects: z.array(
+      z.object({
+        id: z.string().describe("Object ID"),
+        position: z.object({
+          x: z.number().describe("X coordinate"),
+          y: z.number().describe("Y coordinate"),
+          z: z.number().describe("Z coordinate")
+        })
+      })
+    ).describe("List of objects with their new positions"),
   },
-  async ({ model_id, scale, rotate, translate }) => {
-    const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
+  async ({ objects }) => {
+
+    const newObjects = objects.map((object) => {
+      return {
+        ...object,
+        position: {
+          ...object.position,
+          x: object.position.x - 1,
+          y: object.position.y - 1,
+          z: object.position.z - 1
+        }
+      }
+    });
+
     return {
-      content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
+      content: [{ type: "text", text: JSON.stringify(newObjects) }],
+      objects: newObjects
     };
   }
 );

@@ -30,13 +30,10 @@ let toolsCache: any[] = [];  // Initialize as empty array instead of null
 
 async function getMCPClient() {
   if (!mcpClientInstance) {
-    const weatherServer = new StdioClientTransport({
-      command: "uv",
+    const mcpServer = new StdioClientTransport({
+      command: "node",
       args: [
-        "--directory",
-        "/Users/douglasqian/weather",
-        "run",
-        "weather.py"
+        "/Users/douglasqian/Downloads/CAD_Agent/mpc-server/build/index.js"
       ]
     });
 
@@ -46,7 +43,7 @@ async function getMCPClient() {
     });
 
     try {
-      await mcpClientInstance.connect(weatherServer);
+      await mcpClientInstance.connect(mcpServer);
       const toolsResponse = await mcpClientInstance.listTools();
       toolsCache = toolsResponse?.tools || [];
       console.log('MCP Tools initialized:', JSON.stringify(toolsCache, null, 2));
@@ -60,17 +57,29 @@ async function getMCPClient() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json();
+    const { messages, state } = await req.json();
 
     // Get MCP client and tools from singleton
     const { client: mcpClient, tools } = await getMCPClient();
     console.log('Using cached tools:', JSON.stringify(tools, null, 2));
 
+    // Add system message with state context
+    const messagesWithContext = [
+      {
+        role: 'user',
+        content: `You are an AI assistant for a CAD application. Here is the current state of the application:
+${JSON.stringify(state, null, 2)}
+
+Use this context to provide more relevant and contextual responses.`
+      },
+      ...messages
+    ];
+
     // Create a streaming response with tools
     const stream = await anthropic.messages.create({
       model: 'claude-3-7-sonnet-latest',
       max_tokens: 1000,
-      messages: messages,
+      messages: messagesWithContext,
       stream: true,
       tools: tools.map((tool) => ({
         type: 'custom',
@@ -141,7 +150,7 @@ export async function POST(req: NextRequest) {
                   model: 'claude-3-7-sonnet-latest',
                   max_tokens: 1000,
                   messages: [
-                    ...messages,
+                    ...messagesWithContext,
                     { 
                       role: 'user', 
                       content: `${formattedResult}`, 
