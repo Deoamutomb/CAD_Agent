@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { z } from 'zod';
-import { S3Client, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
 export interface ObjModel {
@@ -108,6 +108,35 @@ export class ObjProcessor {
       chunks.push(Buffer.from(chunk));
     }
     return Buffer.concat(chunks);
+  }
+
+  private async getMetadataKey(fileKey: string): Promise<string> {
+    return `${fileKey}.metadata.json`;
+  }
+
+  async getFileMetadata(fileKey: string): Promise<any> {
+    try {
+      const metadataKey = await this.getMetadataKey(fileKey);
+      const metadataBuffer = await this.getS3Object(metadataKey);
+      return JSON.parse(metadataBuffer.toString());
+    } catch (error: any) {
+      if (error.name === 'NoSuchKey') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async setFileMetadata(fileKey: string, metadata: any): Promise<void> {
+    const metadataKey = await this.getMetadataKey(fileKey);
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: metadataKey,
+      Body: JSON.stringify(metadata, null, 2),
+      ContentType: 'application/json'
+    });
+
+    await this.s3Client.send(command);
   }
 
   async loadModel(id: string, filePath: string): Promise<ObjModel> {

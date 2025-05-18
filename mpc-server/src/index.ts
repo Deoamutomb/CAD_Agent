@@ -188,6 +188,25 @@ server.tool(
   }
 );
 
+server.tool("set_file_metadata", {
+  file_key: z.string().describe("The key of the file in S3"),
+  metadata: z.record(z.any()).describe("The metadata to store as a JSON object")
+}, async ({ file_key, metadata }) => {
+  await objProcessor.setFileMetadata(file_key, metadata);
+  return {
+    content: [{ type: "text", text: "Metadata updated successfully" }]
+  };
+});
+
+server.tool("get_file_metadata", {
+  file_key: z.string().describe("The key of the file in S3")
+}, async ({ file_key }) => {
+  const metadata = await objProcessor.getFileMetadata(file_key);
+  return {
+    content: [{ type: "text", text: JSON.stringify(metadata) }]
+  };
+});
+
 // Start the server
 async function main() {
   const transport = new StdioServerTransport();

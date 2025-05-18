@@ -184,4 +184,26 @@ export class ObjProcessor {
         this.models.set(id, modifiedModel);
         return modifiedModel;
     }
+    async getMetadataKey(fileKey) {
+        return `${fileKey}.metadata.json`;
+    }
+    async getFileMetadata(fileKey) {
+        const metadataKey = await this.getMetadataKey(fileKey);
+        const metadataBuffer = await this.getS3Object(metadataKey);
+        return JSON.parse(metadataBuffer.toString());
+    }
+    async setFileMetadata(fileKey, metadata) {
+        const metadataKey = await this.getMetadataKey(fileKey);
+        const metadataJson = JSON.stringify(metadata);
+        const metadataBuffer = Buffer.from(metadataJson, 'utf-8');
+        await this.putS3Object(metadataKey, metadataBuffer);
+    }
+    async putS3Object(key, buffer) {
+        const command = new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: key,
+            Body: buffer
+        });
+        await this.s3Client.send(command);
+    }
 }
