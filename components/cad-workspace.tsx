@@ -506,6 +506,8 @@ export function CadWorkspace() {
   const [objectToDelete, setObjectToDelete] = useState<string | null>(null)
   const { toast } = useToast()
   const [aiChatMessages, setAiChatMessages] = useState<AiChatMessage[]>([])
+
+  // Determine if the AI panel should be wider (when showing replacement options)
   const isShowingReplacementOptions = aiChatMessages.some(msg => msg.options && msg.options.length > 0);
 
   // Define a default cube
@@ -859,7 +861,7 @@ export function CadWorkspace() {
     }
   }, [history, historyIndex, setObjects, setHistoryIndex])
 
-  // Handle AI assistant submission
+  // Handle AI assistant submission (for text prompts)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isLoading) return
@@ -882,16 +884,17 @@ export function CadWorkspace() {
         const thinkingMsgIndex = prevAiMessages.findIndex(msg => msg.text === "Thinking...");
         const updatedMessages = [...prevAiMessages];
         if(thinkingMsgIndex !== -1) {
-          updatedMessages[thinkingMsgIndex] = { 
-            id: updatedMessages[thinkingMsgIndex].id, 
-            sender: 'ai', 
-            text: `Okay, I processed your request: "${currentInput}". How else can I help?` 
-          };
+          updatedMessages[thinkingMsgIndex] = { id: updatedMessages[thinkingMsgIndex].id, sender: 'ai', text: `Okay, I processed your request: "${currentInput}". How else can I help?` };
         }
         return updatedMessages;
       });
       setIsLoading(false);
     }, 1500);
+
+    // Original API call logic commented out for now to focus on UI
+    /* try {
+      // ... fetch logic ...
+    } catch (error) { ... } finally { ... } */
   }
 
   const mockReplacementOptions: ReplacementOption[] = [
@@ -1527,13 +1530,13 @@ export function CadWorkspace() {
                   <Button variant="ghost" size="icon" onClick={handleClearMessages} className="h-7 w-7">
                     <Trash2 className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setShowAiPanel(false)} className="h-7 w-7">
-                    <EyeOff className="h-4 w-4" />
-                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => { setShowAiPanel(false); /* setAiPanelMode('default'); */ }} className="h-7 w-7">
+                  <EyeOff className="h-4 w-4" />
+                </Button>
                 </div>
               </div>
 
-              {/* Contextual buttons for selected object */}
+              {/* Contextual buttons for selected object - ADDING THIS SECTION */}
               {selectedObjects.length === 1 && (
                 <div className="flex items-center space-x-2 mb-3 py-2 px-1 border-b border-t border-gray-200 dark:border-gray-700">
                   <span className="text-xs font-medium text-gray-600 dark:text-gray-400 truncate" title={`Selected: ${objects.find(obj => obj.id === selectedObjects[0])?.type || 'Object'}`}>
@@ -1541,7 +1544,7 @@ export function CadWorkspace() {
                   </span>
                   <Button 
                     variant="outline" 
-                    size="sm"
+                    size="sm" // ENSURE THIS IS sm, NOT xs
                     className="text-xs py-1 px-2 leading-tight" 
                     onClick={() => {
                       const selectedObj = objects.find(obj => obj.id === selectedObjects[0]);
@@ -1552,19 +1555,21 @@ export function CadWorkspace() {
                         text: learnText
                       }]);
                       toast({ title: "Learn Action", description: `Showing info for ${selectedObj?.type || 'selected object'}`});
+                      console.log('Learn about selected object:', selectedObj);
                   }}>
                     Learn
                   </Button>
                   <Button 
                     variant="outline" 
-                    size="sm"
+                    size="sm" // ENSURE THIS IS sm, NOT xs
                     className="text-xs py-1 px-2 leading-tight" 
                     onClick={handleRequestReplacementOptions}
                   >
                     Replace
                   </Button>
-                </div>
+                  </div>
               )}
+              {/* END OF ADDED SECTION */}
 
               {/* Chat messages area */}
               <ScrollArea className={cn(
@@ -1572,31 +1577,31 @@ export function CadWorkspace() {
                 isShowingReplacementOptions ? "max-h-[calc(70vh-150px)]" : "max-h-[calc(60vh-130px)]"
               )}>
                 <div className="space-y-2 pr-4">
+                  {/* Display initial message if no chat messages and no selection actions bar is shown */}
                   {aiChatMessages.length === 0 && (
                     <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-8">
-                      {selectedObjects.length === 1 
+                       {selectedObjects.length === 1 
                         ? `Selected ${objects.find(obj => obj.id === selectedObjects[0])?.type || 'Object'}. Use Learn/Replace or type a command.`
                         : "Ask the AI assistant to perform actions, modify objects, or get information."
-                      }
-                    </div>
+                       }
+                  </div>
                   )}
                   {aiChatMessages.map((message) => (
                     <div
                       key={message.id}
-                      className={cn(
-                        "text-sm break-words mb-2 flex flex-col",
+                      className={`${
                         message.sender === 'user'
                           ? 'bg-blue-100 dark:bg-blue-900 ml-auto max-w-[85%] p-2 rounded'
-                          : message.options && message.options.length > 0 
-                            ? 'mr-auto w-full' // No background for replacement options
-                            : 'bg-gray-100 dark:bg-gray-700 mr-auto w-full p-2 rounded'
-                      )}
+                          : message.options 
+                            ? 'w-full' // Remove padding and background for messages with options
+                            : 'bg-gray-100 dark:bg-gray-700 mr-auto p-2 rounded'
+                      } text-sm break-words mb-2 flex flex-col`}
                     >
-                      {message.isReplacementPrompt && <p className="whitespace-pre-wrap font-semibold mb-1 p-2">{message.text}</p>}
+                      {message.isReplacementPrompt && <p className="whitespace-pre-wrap font-semibold mb-1 p-2 bg-gray-100 dark:bg-gray-700 rounded">{message.text}</p>}
                       {!message.isReplacementPrompt && message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
                       
                       {message.options && message.options.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {message.options.map(option => (
                             <div key={option.id} className="p-3 border rounded-lg bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                               {/* Top section of the card: Image placeholder and then text info */}
@@ -1610,7 +1615,7 @@ export function CadWorkspace() {
                                   {option.primitiveType === 'plane' && <SquareIcon className="h-10 w-10 text-purple-500" />}
                                   {option.primitiveType === 'gear' && <LucideGearIcon className="h-10 w-10 text-orange-500" />}
                                   {option.primitiveType === 'hex' && <HexagonIcon className="h-10 w-10 text-pink-500" />}
-                                </div>
+                  </div>
                                 
                                 <h4 className="font-semibold text-lg mb-1.5 text-gray-800 dark:text-gray-100">{option.displayName}</h4>
                                 
@@ -1625,8 +1630,7 @@ export function CadWorkspace() {
                               <Button 
                                 size="sm" 
                                 className="w-full mt-auto bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 font-medium"
-                                onClick={() => handleExecuteReplacement(option.primitiveType)}
-                              >
+                                onClick={() => handleExecuteReplacement(option.primitiveType)} >
                                 Replace with this {option.primitiveType}
                               </Button>
                             </div>
