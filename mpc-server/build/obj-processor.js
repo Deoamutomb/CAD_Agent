@@ -38,17 +38,17 @@ export class ObjProcessor {
             });
             const response = await this.s3Client.send(command);
             const files = response.Contents || [];
-            console.log('\nFiles in S3 bucket:', this.bucketName);
-            console.log('----------------------------------------');
+            // console.log('\nFiles in S3 bucket:', this.bucketName);
+            // console.log('----------------------------------------');
             if (files.length === 0) {
-                console.log('No files found in bucket');
+                // console.log('No files found in bucket');
             }
             else {
                 files.forEach(file => {
-                    console.log(`- ${file.Key} (${file.Size} bytes, last modified: ${file.LastModified})`);
+                    // console.log(`- ${file.Key} (${file.Size} bytes, last modified: ${file.LastModified})`);
                 });
             }
-            console.log('----------------------------------------\n');
+            // console.log('----------------------------------------\n');
         }
         catch (error) {
             console.error('Failed to list bucket contents:', error);
