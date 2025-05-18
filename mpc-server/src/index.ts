@@ -14,7 +14,8 @@ const server = new McpServer({
 
 // Initialize OBJ processor
 const objProcessor = new ObjProcessor({
-  basePath: "s3://alyshahudson-obj-files"
+  basePath: "s3://alyshahudson-obj-files",
+
 });
 
 // Register resources
@@ -82,21 +83,21 @@ server.tool(
 );
 
 
-server.tool(
-  "modify_obj",
-  {
-    model_id: z.string().describe("ID of the OBJ model to modify"),
-    scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
-    rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
-    translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
-  },
-  async ({ model_id, scale, rotate, translate }) => {
-    const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
-    return {
-      content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
-    };
-  }
-);
+// server.tool(
+//   "modify_obj",
+//   {
+//     model_id: z.string().describe("ID of the OBJ model to modify"),
+//     scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
+//     rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
+//     translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
+//   },
+//   async ({ model_id, scale, rotate, translate }) => {
+//     const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
+//     return {
+//       content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
+//     };
+//   }
+// );
 
 server.tool(
   "add-objects",

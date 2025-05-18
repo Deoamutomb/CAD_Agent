@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { S3Client, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
 export class ObjProcessor {
     models = new Map();
     loader;
@@ -19,10 +19,6 @@ export class ObjProcessor {
         // Initialize S3 client
         this.s3Client = new S3Client({
             region: 'us-east-2',
-            credentials: {
-                accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
-            }
         });
         // console.log('S3 client initialized');
         // List and print all files in the bucket on startup
@@ -69,6 +65,32 @@ export class ObjProcessor {
             chunks.push(Buffer.from(chunk));
         }
         return Buffer.concat(chunks);
+    }
+    async getMetadataKey(fileKey) {
+        return `${fileKey}.metadata.json`;
+    }
+    async getFileMetadata(fileKey) {
+        try {
+            const metadataKey = await this.getMetadataKey(fileKey);
+            const metadataBuffer = await this.getS3Object(metadataKey);
+            return JSON.parse(metadataBuffer.toString());
+        }
+        catch (error) {
+            if (error.name === 'NoSuchKey') {
+                return null;
+            }
+            throw error;
+        }
+    }
+    async setFileMetadata(fileKey, metadata) {
+        const metadataKey = await this.getMetadataKey(fileKey);
+        const command = new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: metadataKey,
+            Body: JSON.stringify(metadata, null, 2),
+            ContentType: 'application/json'
+        });
+        await this.s3Client.send(command);
     }
     async loadModel(id, filePath) {
         // Get the file from S3
@@ -183,27 +205,5 @@ export class ObjProcessor {
         };
         this.models.set(id, modifiedModel);
         return modifiedModel;
-    }
-    async getMetadataKey(fileKey) {
-        return `${fileKey}.metadata.json`;
-    }
-    async getFileMetadata(fileKey) {
-        const metadataKey = await this.getMetadataKey(fileKey);
-        const metadataBuffer = await this.getS3Object(metadataKey);
-        return JSON.parse(metadataBuffer.toString());
-    }
-    async setFileMetadata(fileKey, metadata) {
-        const metadataKey = await this.getMetadataKey(fileKey);
-        const metadataJson = JSON.stringify(metadata);
-        const metadataBuffer = Buffer.from(metadataJson, 'utf-8');
-        await this.putS3Object(metadataKey, metadataBuffer);
-    }
-    async putS3Object(key, buffer) {
-        const command = new PutObjectCommand({
-            Bucket: this.bucketName,
-            Key: key,
-            Body: buffer
-        });
-        await this.s3Client.send(command);
     }
 }

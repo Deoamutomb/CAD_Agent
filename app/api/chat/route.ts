@@ -123,13 +123,26 @@ Use this context to provide more relevant and contextual responses.`
             } else if (chunk.type === 'content_block_stop' && currentToolCall) {
               // End of tool call, parse the complete JSON and execute the tool
               try {
-                const parameters = JSON.parse(currentJsonInput);
-                console.log('Tool call:', JSON.stringify({ ...currentToolCall, parameters }, null, 2));
+                console.log('Current JSON input:', currentJsonInput);
                 
-                const result = await mcpClient.callTool({
-                  name: currentToolCall.name,
-                  arguments: parameters
-                });
+                let result;
+                if (currentJsonInput.trim() === '') {
+                  // If JSON input is empty, call tool with no arguments
+                  console.log('Tool call with no arguments:', currentToolCall.name);
+                  result = await mcpClient.callTool({
+                    name: currentToolCall.name,
+                    arguments: {},
+                  });
+                } else {
+                  // Parse parameters and include them in the tool call
+                  const parameters = JSON.parse(currentJsonInput);
+                  console.log('Tool call:', JSON.stringify({ ...currentToolCall, parameters }, null, 2));
+                  result = await mcpClient.callTool({
+                    name: currentToolCall.name,
+                    arguments: parameters
+                  });
+                }
+                
                 console.log('Tool result:', JSON.stringify(result, null, 2));
                 
                 // Format the tool result into a readable string
