@@ -68,6 +68,7 @@ server.resource(
   }
 );
 
+
 // Register tools
 server.tool(
   "analyze_obj",
@@ -79,6 +80,7 @@ server.tool(
     };
   }
 );
+
 
 server.tool(
   "modify_obj",
@@ -92,6 +94,85 @@ server.tool(
     const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
     return {
       content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
+    };
+  }
+);
+
+server.tool(
+  "add-objects",
+  "Creates new objects in a 3D scene.",
+  {
+    newObjects: z.array(
+      z.object({
+        type: z.enum(["cube", "cylinder", "sphere", "gear"]).describe("Type of 3D object to create"),
+        position: z.object({
+          x: z.number().describe("X coordinate"),
+          y: z.number().describe("Y coordinate"),
+          z: z.number().describe("Z coordinate")
+        })
+      })
+    ).describe("A new object with its position"),
+  },
+  async ({ newObjects }) => {
+
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(newObjects) }],
+      object: newObjects
+    };
+  }
+);
+
+server.tool(
+  "remove-objects",
+  "Removes objects in a 3D scene.",
+  {
+    objectIds: z.array(
+      z.string().describe("ID of the object to remove")
+    ).describe("List of object IDs to remove from the scene"),
+  },
+  async ({ objectIds }) => {
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(objectIds) }],
+      objectIds: objectIds
+    };
+  }
+);
+
+
+server.tool(
+  "reposition-objects",
+  "Update position of objects in a 3D scene.",
+  {
+    objects: z.array(
+      z.object({
+        id: z.string().describe("Object ID"),
+        position: z.object({
+          x: z.number().describe("X coordinate"),
+          y: z.number().describe("Y coordinate"),
+          z: z.number().describe("Z coordinate")
+        })
+      })
+    ).describe("List of objects with their new positions"),
+  },
+  async ({ objects }) => {
+
+    const newObjects = objects.map((object) => {
+      return {
+        ...object,
+        position: {
+          ...object.position,
+          x: object.position.x - 1,
+          y: object.position.y - 1,
+          z: object.position.z - 1
+        }
+      }
+    });
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(newObjects) }],
+      objects: newObjects
     };
   }
 );

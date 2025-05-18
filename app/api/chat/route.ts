@@ -30,13 +30,10 @@ let toolsCache: any[] = [];  // Initialize as empty array instead of null
 
 async function getMCPClient() {
   if (!mcpClientInstance) {
-    const weatherServer = new StdioClientTransport({
-      command: "uv",
+    const mcpServer = new StdioClientTransport({
+      command: "node",
       args: [
-        "--directory",
-        "/Users/douglasqian/weather",
-        "run",
-        "weather.py"
+        "/Users/douglasqian/Downloads/CAD_Agent/mpc-server/build/index.js"
       ]
     });
 
@@ -46,7 +43,7 @@ async function getMCPClient() {
     });
 
     try {
-      await mcpClientInstance.connect(weatherServer);
+      await mcpClientInstance.connect(mcpServer);
       const toolsResponse = await mcpClientInstance.listTools();
       toolsCache = toolsResponse?.tools || [];
       console.log('MCP Tools initialized:', JSON.stringify(toolsCache, null, 2));
@@ -60,17 +57,29 @@ async function getMCPClient() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json();
+    const { messages, state } = await req.json();
 
     // Get MCP client and tools from singleton
     const { client: mcpClient, tools } = await getMCPClient();
     console.log('Using cached tools:', JSON.stringify(tools, null, 2));
 
+    // Add system message with state context
+    const messagesWithContext = [
+      {
+        role: 'user',
+        content: `You are an AI assistant for a CAD application. Here is the current state of the application:
+${JSON.stringify(state, null, 2)}
+
+Use this context to provide more relevant and contextual responses.`
+      },
+      ...messages
+    ];
+
     // Create a streaming response with tools
     const stream = await anthropic.messages.create({
       model: 'claude-3-7-sonnet-latest',
-      max_tokens: 1000,
-      messages: messages,
+      max_tokens: 10000,
+      messages: messagesWithContext,
       stream: true,
       tools: tools.map((tool) => ({
         type: 'custom',
@@ -125,11 +134,27 @@ export async function POST(req: NextRequest) {
                 
                 // Format the tool result into a readable string
                 let formattedResult = '';
+                let objectsUpdate = null;
+                let objectsToAdd = null;
+                let objectsToRemove = null;
+
                 if (typeof result === 'object') {
                   if (currentToolCall.name === 'get_alerts') {
                     formattedResult = `Weather alerts for ${parameters.state}:\n${JSON.stringify(result, null, 2)}`;
                   } else if (currentToolCall.name === 'get_forecast') {
                     formattedResult = `Weather forecast for coordinates (${parameters.latitude}, ${parameters.longitude}):\n${JSON.stringify(result, null, 2)}`;
+                  } else if (result.objects) {
+                    // Handle object position updates
+                    formattedResult = `Updated object positions:\n${JSON.stringify(result.objects, null, 2)}`;
+                    objectsUpdate = result.objects;
+                  } else if (result.object) {
+                    // Handle new objects
+                    formattedResult = `Added new objects:\n${JSON.stringify(result.object, null, 2)}`;
+                    objectsToAdd = result.object;
+                  } else if (result.objectIds) {
+                    // Handle object removal
+                    formattedResult = `Removed objects:\n${JSON.stringify(result.objectIds, null, 2)}`;
+                    objectsToRemove = result.objectIds;
                   } else {
                     formattedResult = JSON.stringify(result, null, 2);
                   }
@@ -139,9 +164,9 @@ export async function POST(req: NextRequest) {
 
                 const finalCompletionInput = {
                   model: 'claude-3-7-sonnet-latest',
-                  max_tokens: 1000,
+                  max_tokens: 10000,
                   messages: [
-                    ...messages,
+                    ...messagesWithContext,
                     { 
                       role: 'user', 
                       content: `${formattedResult}`, 
@@ -160,6 +185,19 @@ export async function POST(req: NextRequest) {
                 // Stream the response from Claude after tool call
                 for await (const responseChunk of toolResponse) {
                   if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
+                    // If we have updates, send them as special messages
+                    if (objectsUpdate) {
+                      controller.enqueue(encoder.encode(`<objects_update>${JSON.stringify(objectsUpdate)}</objects_update>`));
+                      objectsUpdate = null;
+                    }
+                    if (objectsToAdd) {
+                      controller.enqueue(encoder.encode(`<objects_add>${JSON.stringify(objectsToAdd)}</objects_add>`));
+                      objectsToAdd = null;
+                    }
+                    if (objectsToRemove) {
+                      controller.enqueue(encoder.encode(`<objects_remove>${JSON.stringify(objectsToRemove)}</objects_remove>`));
+                      objectsToRemove = null;
+                    }
                     controller.enqueue(encoder.encode(responseChunk.delta.text));
                   }
                 }
