@@ -506,6 +506,7 @@ export function CadWorkspace() {
   const [objectToDelete, setObjectToDelete] = useState<string | null>(null)
   const { toast } = useToast()
   const [aiChatMessages, setAiChatMessages] = useState<AiChatMessage[]>([])
+  const isShowingReplacementOptions = aiChatMessages.some(msg => msg.options && msg.options.length > 0);
 
   // Define a default cube
   const defaultCube: CubeObject = {
@@ -858,9 +859,6 @@ export function CadWorkspace() {
     }
   }, [history, historyIndex, setObjects, setHistoryIndex])
 
-  // Determine if the AI panel should be wider (when showing replacement options)
-  const isShowingReplacementOptions = aiChatMessages.some(msg => msg.options && msg.options.length > 0);
-
   // Handle AI assistant submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1180,13 +1178,15 @@ export function CadWorkspace() {
 
     return (
       <>
-        {actualGizmoTargetForTC && selectedObjs.length > 0 && ( 
+        {/* Defensive check: Ensure target is valid and part of the scene graph before rendering TransformControls */}
+        {actualGizmoTargetForTC && actualGizmoTargetForTC.parent && selectedObjs.length > 0 && ( 
           <TransformControls
             object={actualGizmoTargetForTC}
             mode={currentTransformMode}
             onChange={handleTransformChange} 
             onMouseUp={handleTransformEnd}
             onMouseDown={handleTransformMouseDown}
+            key={actualGizmoTargetForTC.uuid} // Add key to force re-creation if object fundamentally changes
           />
         )}
       </>
@@ -1583,13 +1583,14 @@ export function CadWorkspace() {
                   {aiChatMessages.map((message) => (
                     <div
                       key={message.id}
-                      className={`${
+                      className={cn(
+                        "text-sm break-words mb-2 flex flex-col",
                         message.sender === 'user'
                           ? 'bg-blue-100 dark:bg-blue-900 ml-auto max-w-[85%] p-2 rounded'
                           : message.options && message.options.length > 0 
-                            ? 'mr-auto w-full' // No background or padding for replacement options
+                            ? 'mr-auto w-full' // No background for replacement options
                             : 'bg-gray-100 dark:bg-gray-700 mr-auto w-full p-2 rounded'
-                      } text-sm break-words mb-2 flex flex-col`}
+                      )}
                     >
                       {message.isReplacementPrompt && <p className="whitespace-pre-wrap font-semibold mb-1 p-2">{message.text}</p>}
                       {!message.isReplacementPrompt && message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
@@ -1598,7 +1599,9 @@ export function CadWorkspace() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
                           {message.options.map(option => (
                             <div key={option.id} className="p-3 border rounded-lg bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+                              {/* Top section of the card: Image placeholder and then text info */}
                               <div> 
+                                {/* Image Placeholder with Icon */}
                                 <div className="w-full h-24 bg-gray-100 dark:bg-gray-700 rounded-sm flex items-center justify-center mb-3 p-2">
                                   {option.primitiveType === 'cube' && <Cube className="h-10 w-10 text-blue-500" />}
                                   {option.primitiveType === 'sphere' && <CircleIcon className="h-10 w-10 text-green-500" />}
@@ -1618,6 +1621,7 @@ export function CadWorkspace() {
                                 </div> 
                               </div>
 
+                              {/* Button at the bottom */}
                               <Button 
                                 size="sm" 
                                 className="w-full mt-auto bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 font-medium"
