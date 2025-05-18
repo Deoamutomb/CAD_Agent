@@ -53,6 +53,7 @@ export class ObjProcessor {
     // Initialize S3 client
     this.s3Client = new S3Client({
       region: 'us-east-2',
+
     });
     // console.log('S3 client initialized');
 
@@ -215,6 +216,7 @@ export class ObjProcessor {
     const response = await this.s3Client.send(command);
     const models = response.Contents?.map(object => ({
       id: object.Key?.replace('.obj', '') || '',
+      fullPath: object.Key || '',
       name: object.Key?.split('/').pop()?.replace('.obj', '') || '',
       created: object.LastModified || new Date(),
       modified: object.LastModified || new Date()
@@ -268,5 +270,39 @@ export class ObjProcessor {
 
     this.models.set(id, modifiedModel);
     return modifiedModel;
+  }
+
+  async downloadFile(s3Path: string): Promise<{ data: Buffer; contentType: string }> {
+    // Parse the S3 path
+    const s3Url = new URL(s3Path);
+    if (s3Url.protocol !== 's3:') {
+      throw new Error('Path must be an S3 URL (s3://bucket-name/path/to/file)');
+    }
+
+    const bucketName = s3Url.hostname;
+    const key = s3Url.pathname.replace(/^\//, '');
+
+    // Get the file from S3
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key
+    });
+
+    const response = await this.s3Client.send(command);
+    if (!response.Body) {
+      throw new Error(`Failed to get object ${key} from S3`);
+    }
+
+    // Convert stream to buffer
+    const chunks: Buffer[] = [];
+    for await (const chunk of response.Body as Readable) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const data = Buffer.concat(chunks);
+
+    return {
+      data,
+      contentType: response.ContentType || 'application/octet-stream'
+    };
   }
 } 

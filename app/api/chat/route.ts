@@ -168,6 +168,10 @@ Use this context to provide more relevant and contextual responses.`
                     // Handle object removal
                     formattedResult = `Removed objects:\n${JSON.stringify(result.objectIds, null, 2)}`;
                     objectsToRemove = result.objectIds;
+                  } else if (result.file) {
+                    // Handle file download
+                    formattedResult = `File downloaded: ${result.file.filename}`;
+                    controller.enqueue(encoder.encode(`<file_download>${JSON.stringify(result.file)}</file_download>`));
                   } else {
                     formattedResult = JSON.stringify(result, null, 2);
                   }

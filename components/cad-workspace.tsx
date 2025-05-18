@@ -60,6 +60,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import * as THREE from "three"
+import { OBJLoaderComponent } from './obj-loader'
 
 // Import primitive components
 import {
@@ -278,8 +279,9 @@ function Scene({
   }, [showContextMenu])
 
   const handleTransformChange = (event?: THREE.Event) => {
-    if (event && event.target && event.target.object) {
-      const transformedObject = event.target.object;
+    const target = event?.target as { object?: THREE.Object3D };
+    if (target?.object) {
+      const transformedObject = target.object;
       const { x: posX, y: posY, z: posZ } = transformedObject.position;
       const euler = transformedObject.rotation as unknown as THREE.Euler;
       const { x: rotX, y: rotY, z: rotZ } = euler;
@@ -500,6 +502,17 @@ interface AiChatMessage {
   text: string;
 }
 
+// Update the message interface to include file data
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  fileData?: {
+    data: string;
+    contentType: string;
+    filename: string;
+  };
+}
+
 export function CadWorkspace() {
   const [showLeftPanel, setShowLeftPanel] = useState(true)
   const [showRightPanel, setShowRightPanel] = useState(true)
@@ -533,7 +546,7 @@ export function CadWorkspace() {
   const [historyIndex, setHistoryIndex] = useState(0)
 
   // State for AI assistant
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
@@ -836,15 +849,15 @@ export function CadWorkspace() {
     setMessages([])
   }
 
-  // Handle AI assistant submission
+  // Update the handleSubmit function to handle file data
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!input.trim() || isLoading) return
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
 
-    const userMessage = { role: 'user' as const, content: input }
-    setMessages(prev => [...prev, userMessage])
-    setInput("")
-    setIsLoading(true)
+    const userMessage = { role: 'user' as const, content: input };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
 
     try {
       const response = await fetch('/api/chat', {
@@ -864,21 +877,63 @@ export function CadWorkspace() {
             selectedModel
           }
         })
-      })
+      });
 
-      if (!response.ok) throw new Error('Failed to fetch')
-      if (!response.body) throw new Error('No response body')
+      if (!response.ok) throw new Error('Failed to fetch');
+      if (!response.body) throw new Error('No response body');
 
-      const reader = response.body.getReader()
-      let assistantMessage = { role: 'assistant' as const, content: '' }
-      setMessages(prev => [...prev, assistantMessage])
+      const reader = response.body.getReader();
+      let assistantMessage = { role: 'assistant' as const, content: '' };
+      setMessages(prev => [...prev, assistantMessage]);
 
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        const text = new TextDecoder().decode(value)
+        const text = new TextDecoder().decode(value);
         
+        // Add debug logging for raw text
+        console.log('Raw text received:', text);
+        
+        // Check for file downloads in the response
+        const fileDownloadMatch = text.match(/<file_download>(.*?)<\/file_download>/);
+        if (fileDownloadMatch) {
+          console.log('File download match found:', fileDownloadMatch[1]);
+          try {
+            const fileData = JSON.parse(fileDownloadMatch[1]);
+            console.log('Parsed file data:', fileData);
+            
+            // Validate file data structure
+            if (!fileData.data || !fileData.contentType || !fileData.filename) {
+              console.error('Invalid file data structure:', fileData);
+              return;
+            }
+            
+            setMessages(prev => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage?.role === 'assistant') {
+                const updatedMessage = {
+                  ...lastMessage,
+                  fileData: {
+                    data: fileData.data,
+                    contentType: fileData.contentType,
+                    filename: fileData.filename
+                  }
+                };
+                console.log('Updated message with file data:', updatedMessage);
+                return [
+                  ...prev.slice(0, -1),
+                  updatedMessage
+                ];
+              }
+              return prev;
+            });
+          } catch (error) {
+            console.error('Error parsing file data:', error);
+            console.error('Raw file data that failed to parse:', fileDownloadMatch[1]);
+          }
+        }
+
         // Check for object updates in the response
         const objectUpdateMatch = text.match(/<objects_update>(.*?)<\/objects_update>/);
         const objectAddMatch = text.match(/<objects_add>(.*?)<\/objects_add>/);
@@ -975,21 +1030,23 @@ export function CadWorkspace() {
           }
         }
         
-        // Remove all object operation tags from the displayed message
+        // Remove all special tags from the displayed message
         const cleanText = text
+          .replace(/<file_download>.*?<\/file_download>/g, '')
           .replace(/<objects_update>.*?<\/objects_update>/g, '')
           .replace(/<objects_add>.*?<\/objects_add>/g, '')
           .replace(/<objects_remove>.*?<\/objects_remove>/g, '');
+        
         assistantMessage.content += cleanText;
         setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }]);
       }
     } catch (error) {
-      console.error('Error:', error)
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, there was an error processing your request.' }])
+      console.error('Error:', error);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, there was an error processing your request.' }]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   // Generate a random color
   const getRandomColor = () => {
@@ -1327,18 +1384,38 @@ export function CadWorkspace() {
 
               <ScrollArea className="flex-1 min-h-[200px] max-h-[300px] mb-2 overflow-y-auto">
                 <div className="space-y-2 pr-4">
-                  {messages.map((message, i) => (
-                    <div
-                      key={i}
-                      className={`p-2 rounded ${
-                        message.role === 'user'
-                          ? 'bg-blue-100 dark:bg-blue-900 ml-8'
-                          : 'bg-gray-100 dark:bg-gray-700'
-                      }`}
-                    >
-                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    </div>
-                  ))}
+                  {messages.map((message, i) => {
+                    // Log file data outside of JSX
+                    if (message.fileData) {
+                      console.log('Rendering OBJLoader with fileData:', message.fileData);
+                    }
+                    
+                    return (
+                      <div
+                        key={i}
+                        className={`p-2 rounded ${
+                          message.role === 'user'
+                            ? 'bg-blue-100 dark:bg-blue-900 ml-8'
+                            : 'bg-gray-100 dark:bg-gray-700'
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        {message.fileData && (
+                          <div className="mt-4 h-64 w-full bg-gray-200 dark:bg-gray-800 rounded">
+                            <OBJLoaderComponent
+                              fileData={message.fileData}
+                              onLoad={(object) => {
+                                console.log('OBJ loaded successfully:', object);
+                              }}
+                              onError={(error) => {
+                                console.error('Error loading OBJ:', error);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </ScrollArea>
 
