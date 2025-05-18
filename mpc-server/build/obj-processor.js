@@ -27,7 +27,7 @@ export class ObjProcessor {
         // console.log('S3 client initialized');
         // List and print all files in the bucket on startup
         this.printBucketContents().catch(error => {
-            console.error('Error listing bucket contents:', error);
+            //   console.error('Error listing bucket contents:', error);
         });
     }
     async printBucketContents() {
@@ -38,17 +38,17 @@ export class ObjProcessor {
             });
             const response = await this.s3Client.send(command);
             const files = response.Contents || [];
-            // console.log('\nFiles in S3 bucket:', this.bucketName);
-            // console.log('----------------------------------------');
+            //   console.log('\nFiles in S3 bucket:', this.bucketName);
+            //   console.log('----------------------------------------');
             if (files.length === 0) {
                 // console.log('No files found in bucket');
             }
             else {
                 files.forEach(file => {
-                    // console.log(`- ${file.Key} (${file.Size} bytes, last modified: ${file.LastModified})`);
+                    //   console.log(`- ${file.Key} (${file.Size} bytes, last modified: ${file.LastModified})`);
                 });
             }
-            // console.log('----------------------------------------\n');
+            //   console.log('----------------------------------------\n');
         }
         catch (error) {
             console.error('Failed to list bucket contents:', error);
@@ -97,9 +97,15 @@ export class ObjProcessor {
         return model;
     }
     async analyzeModel(id) {
-        const model = this.models.get(id);
+        let model = this.models.get(id);
         if (!model) {
-            throw new Error(`Model ${id} not found`);
+            // Model not found in memory, try to load it
+            try {
+                model = await this.loadModel(id, `${id}.obj`);
+            }
+            catch (error) {
+                throw new Error(`Model ${id} not found or could not be loaded: ${error.message}`);
+            }
         }
         // Calculate volume using the shoelace formula
         let volume = 0;
