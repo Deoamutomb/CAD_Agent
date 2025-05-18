@@ -881,6 +881,9 @@ export function CadWorkspace() {
         
         // Check for object updates in the response
         const objectUpdateMatch = text.match(/<objects_update>(.*?)<\/objects_update>/);
+        const objectAddMatch = text.match(/<objects_add>(.*?)<\/objects_add>/);
+        const objectRemoveMatch = text.match(/<objects_remove>(.*?)<\/objects_remove>/);
+
         if (objectUpdateMatch) {
           try {
             const objectUpdates = JSON.parse(objectUpdateMatch[1]);
@@ -912,9 +915,71 @@ export function CadWorkspace() {
             console.error('Error parsing object updates:', error);
           }
         }
+
+        if (objectAddMatch) {
+          try {
+            const newObjects = JSON.parse(objectAddMatch[1]);
+            setObjects(prevObjects => {
+              const addedObjects = newObjects.map((obj: any) => ({
+                id: `${obj.type}_${Date.now()}`,
+                type: obj.type,
+                position: [obj.position.x, obj.position.y, obj.position.z] as [number, number, number],
+                color: getRandomColor(),
+                rotation: [0, 0, 0] as [number, number, number],
+                scale: [1, 1, 1] as [number, number, number],
+                ...(obj.type === 'cube' && { size: [1, 1, 1] }),
+                ...(obj.type === 'sphere' && { radius: 0.5 }),
+                ...(obj.type === 'cylinder' && { args: [0.5, 0.5, 1, 32] }),
+                ...(obj.type === 'cone' && { args: [0.5, 1, 32] }),
+                ...(obj.type === 'plane' && { size: [1, 1] }),
+                ...(obj.type === 'gear' && { radius: 0.7, teeth: 10 }),
+                ...(obj.type === 'hex' && { radius: 0.5, height: 0.2 })
+              }));
+
+              const updatedObjects = [...prevObjects, ...addedObjects];
+              
+              // Update history
+              const newHistory = history.slice(0, historyIndex + 1);
+              newHistory.push(updatedObjects);
+              setHistory(newHistory);
+              setHistoryIndex(newHistory.length - 1);
+              
+              return updatedObjects;
+            });
+          } catch (error) {
+            console.error('Error parsing object additions:', error);
+          }
+        }
+
+        if (objectRemoveMatch) {
+          try {
+            const objectIdsToRemove = JSON.parse(objectRemoveMatch[1]);
+            setObjects(prevObjects => {
+              const updatedObjects = prevObjects.filter(obj => !objectIdsToRemove.includes(obj.id));
+              
+              // Update history
+              const newHistory = history.slice(0, historyIndex + 1);
+              newHistory.push(updatedObjects);
+              setHistory(newHistory);
+              setHistoryIndex(newHistory.length - 1);
+              
+              // Clear selection if selected object was removed
+              if (selectedObject && objectIdsToRemove.includes(selectedObject)) {
+                setSelectedObject(null);
+              }
+              
+              return updatedObjects;
+            });
+          } catch (error) {
+            console.error('Error parsing object removals:', error);
+          }
+        }
         
-        // Remove the object update tags from the displayed message
-        const cleanText = text.replace(/<objects_update>.*?<\/objects_update>/g, '');
+        // Remove all object operation tags from the displayed message
+        const cleanText = text
+          .replace(/<objects_update>.*?<\/objects_update>/g, '')
+          .replace(/<objects_add>.*?<\/objects_add>/g, '')
+          .replace(/<objects_remove>.*?<\/objects_remove>/g, '');
         assistantMessage.content += cleanText;
         setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }]);
       }

@@ -78,7 +78,7 @@ Use this context to provide more relevant and contextual responses.`
     // Create a streaming response with tools
     const stream = await anthropic.messages.create({
       model: 'claude-3-7-sonnet-latest',
-      max_tokens: 1000,
+      max_tokens: 10000,
       messages: messagesWithContext,
       stream: true,
       tools: tools.map((tool) => ({
@@ -135,6 +135,9 @@ Use this context to provide more relevant and contextual responses.`
                 // Format the tool result into a readable string
                 let formattedResult = '';
                 let objectsUpdate = null;
+                let objectsToAdd = null;
+                let objectsToRemove = null;
+
                 if (typeof result === 'object') {
                   if (currentToolCall.name === 'get_alerts') {
                     formattedResult = `Weather alerts for ${parameters.state}:\n${JSON.stringify(result, null, 2)}`;
@@ -144,6 +147,14 @@ Use this context to provide more relevant and contextual responses.`
                     // Handle object position updates
                     formattedResult = `Updated object positions:\n${JSON.stringify(result.objects, null, 2)}`;
                     objectsUpdate = result.objects;
+                  } else if (result.object) {
+                    // Handle new objects
+                    formattedResult = `Added new objects:\n${JSON.stringify(result.object, null, 2)}`;
+                    objectsToAdd = result.object;
+                  } else if (result.objectIds) {
+                    // Handle object removal
+                    formattedResult = `Removed objects:\n${JSON.stringify(result.objectIds, null, 2)}`;
+                    objectsToRemove = result.objectIds;
                   } else {
                     formattedResult = JSON.stringify(result, null, 2);
                   }
@@ -153,7 +164,7 @@ Use this context to provide more relevant and contextual responses.`
 
                 const finalCompletionInput = {
                   model: 'claude-3-7-sonnet-latest',
-                  max_tokens: 1000,
+                  max_tokens: 10000,
                   messages: [
                     ...messagesWithContext,
                     { 
@@ -174,10 +185,18 @@ Use this context to provide more relevant and contextual responses.`
                 // Stream the response from Claude after tool call
                 for await (const responseChunk of toolResponse) {
                   if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
-                    // If we have an objects update, send it as a special message
+                    // If we have updates, send them as special messages
                     if (objectsUpdate) {
                       controller.enqueue(encoder.encode(`<objects_update>${JSON.stringify(objectsUpdate)}</objects_update>`));
-                      objectsUpdate = null; // Clear it after sending to avoid duplicate sends
+                      objectsUpdate = null;
+                    }
+                    if (objectsToAdd) {
+                      controller.enqueue(encoder.encode(`<objects_add>${JSON.stringify(objectsToAdd)}</objects_add>`));
+                      objectsToAdd = null;
+                    }
+                    if (objectsToRemove) {
+                      controller.enqueue(encoder.encode(`<objects_remove>${JSON.stringify(objectsToRemove)}</objects_remove>`));
+                      objectsToRemove = null;
                     }
                     controller.enqueue(encoder.encode(responseChunk.delta.text));
                   }

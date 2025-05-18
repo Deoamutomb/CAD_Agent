@@ -97,6 +97,49 @@ server.tool(
 // );
 
 server.tool(
+  "add-objects",
+  "Creates new objects in a 3D scene.",
+  {
+    newObjects: z.array(
+      z.object({
+        type: z.enum(["cube", "cylinder", "sphere", "gear"]).describe("Type of 3D object to create"),
+        position: z.object({
+          x: z.number().describe("X coordinate"),
+          y: z.number().describe("Y coordinate"),
+          z: z.number().describe("Z coordinate")
+        })
+      })
+    ).describe("A new object with its position"),
+  },
+  async ({ newObjects }) => {
+
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(newObjects) }],
+      object: newObjects
+    };
+  }
+);
+
+server.tool(
+  "remove-objects",
+  "Removes objects in a 3D scene.",
+  {
+    objectIds: z.array(
+      z.string().describe("ID of the object to remove")
+    ).describe("List of object IDs to remove from the scene"),
+  },
+  async ({ objectIds }) => {
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(objectIds) }],
+      objectIds: objectIds
+    };
+  }
+);
+
+
+server.tool(
   "reposition-objects",
   "Update position of objects in a 3D scene.",
   {
