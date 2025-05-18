@@ -176,7 +176,8 @@ Use this context to provide more relevant and contextual responses.`
                   if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
                     // If we have an objects update, send it as a special message
                     if (objectsUpdate) {
-                      controller.enqueue(encoder.encode(`\n<objects_update>${JSON.stringify(objectsUpdate)}</objects_update>\n`));
+                      controller.enqueue(encoder.encode(`<objects_update>${JSON.stringify(objectsUpdate)}</objects_update>`));
+                      objectsUpdate = null; // Clear it after sending to avoid duplicate sends
                     }
                     controller.enqueue(encoder.encode(responseChunk.delta.text));
                   }
