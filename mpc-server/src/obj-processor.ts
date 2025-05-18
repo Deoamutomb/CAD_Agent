@@ -53,10 +53,6 @@ export class ObjProcessor {
     // Initialize S3 client
     this.s3Client = new S3Client({
       region: 'us-east-2',
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ''
-      }
     });
     // console.log('S3 client initialized');
 

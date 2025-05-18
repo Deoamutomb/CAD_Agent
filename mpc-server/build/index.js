@@ -10,7 +10,7 @@ const server = new McpServer({
 });
 // Initialize OBJ processor
 const objProcessor = new ObjProcessor({
-    basePath: "s3://alyshahudson-obj-files"
+    basePath: "s3://alyshahudson-obj-files",
 });
 // Register resources
 server.resource("obj-model-list", new ResourceTemplate("obj-model-list:/", { list: undefined }), async (uri) => {
@@ -55,6 +55,21 @@ server.tool("analyze_obj", { model_id: z.string().describe("ID of the OBJ model 
         content: [{ type: "text", text: JSON.stringify(analysis) }]
     };
 });
+// server.tool(
+//   "modify_obj",
+//   {
+//     model_id: z.string().describe("ID of the OBJ model to modify"),
+//     scale: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Scale factors [x, y, z]"),
+//     rotate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Rotation angles in radians [x, y, z]"),
+//     translate: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Translation vector [x, y, z]")
+//   },
+//   async ({ model_id, scale, rotate, translate }) => {
+//     const modifiedModel = await objProcessor.modifyModel(model_id, { scale, rotate, translate });
+//     return {
+//       content: [{ type: "text", text: JSON.stringify(modifiedModel) }]
+//     };
+//   }
+// );
 server.tool("add-objects", "Creates new objects in a 3D scene.", {
     newObjects: z.array(z.object({
         type: z.enum(["cube", "cylinder", "sphere", "gear"]).describe("Type of 3D object to create"),
@@ -108,6 +123,23 @@ server.tool("list_models", {}, async () => {
     const models = await objProcessor.listModels();
     return {
         content: [{ type: "text", text: JSON.stringify(models) }]
+    };
+});
+server.tool("set_file_metadata", {
+    file_key: z.string().describe("The key of the file in S3"),
+    metadata: z.record(z.any()).describe("The metadata to store as a JSON object")
+}, async ({ file_key, metadata }) => {
+    await objProcessor.setFileMetadata(file_key, metadata);
+    return {
+        content: [{ type: "text", text: "Metadata updated successfully" }]
+    };
+});
+server.tool("get_file_metadata", {
+    file_key: z.string().describe("The key of the file in S3")
+}, async ({ file_key }) => {
+    const metadata = await objProcessor.getFileMetadata(file_key);
+    return {
+        content: [{ type: "text", text: JSON.stringify(metadata) }]
     };
 });
 // Start the server
