@@ -878,8 +878,45 @@ export function CadWorkspace() {
         if (done) break
 
         const text = new TextDecoder().decode(value)
-        assistantMessage.content += text
-        setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }])
+        
+        // Check for object updates in the response
+        const objectUpdateMatch = text.match(/<objects_update>(.*?)<\/objects_update>/);
+        if (objectUpdateMatch) {
+          try {
+            const objectUpdates = JSON.parse(objectUpdateMatch[1]);
+            setObjects(prevObjects => {
+              const newObjects = prevObjects.map(obj => {
+                const update = objectUpdates.find((u: { id: string; position: { x: number; y: number; z: number } }) => u.id === obj.id);
+                if (update && update.position) {
+                  return {
+                    ...obj,
+                    position: [
+                      update.position.x,
+                      update.position.y,
+                      update.position.z
+                    ] as [number, number, number]
+                  };
+                }
+                return obj;
+              });
+              
+              // Update history
+              const newHistory = history.slice(0, historyIndex + 1);
+              newHistory.push(newObjects);
+              setHistory(newHistory);
+              setHistoryIndex(newHistory.length - 1);
+              
+              return newObjects;
+            });
+          } catch (error) {
+            console.error('Error parsing object updates:', error);
+          }
+        }
+        
+        // Remove the object update tags from the displayed message
+        const cleanText = text.replace(/<objects_update>.*?<\/objects_update>/g, '');
+        assistantMessage.content += cleanText;
+        setMessages(prev => [...prev.slice(0, -1), { ...assistantMessage }]);
       }
     } catch (error) {
       console.error('Error:', error)

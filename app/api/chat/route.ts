@@ -134,11 +134,16 @@ Use this context to provide more relevant and contextual responses.`
                 
                 // Format the tool result into a readable string
                 let formattedResult = '';
+                let objectsUpdate = null;
                 if (typeof result === 'object') {
                   if (currentToolCall.name === 'get_alerts') {
                     formattedResult = `Weather alerts for ${parameters.state}:\n${JSON.stringify(result, null, 2)}`;
                   } else if (currentToolCall.name === 'get_forecast') {
                     formattedResult = `Weather forecast for coordinates (${parameters.latitude}, ${parameters.longitude}):\n${JSON.stringify(result, null, 2)}`;
+                  } else if (result.objects) {
+                    // Handle object position updates
+                    formattedResult = `Updated object positions:\n${JSON.stringify(result.objects, null, 2)}`;
+                    objectsUpdate = result.objects;
                   } else {
                     formattedResult = JSON.stringify(result, null, 2);
                   }
@@ -169,6 +174,10 @@ Use this context to provide more relevant and contextual responses.`
                 // Stream the response from Claude after tool call
                 for await (const responseChunk of toolResponse) {
                   if (responseChunk.type === 'content_block_delta' && 'text' in responseChunk.delta) {
+                    // If we have an objects update, send it as a special message
+                    if (objectsUpdate) {
+                      controller.enqueue(encoder.encode(`\n<objects_update>${JSON.stringify(objectsUpdate)}</objects_update>\n`));
+                    }
                     controller.enqueue(encoder.encode(responseChunk.delta.text));
                   }
                 }
